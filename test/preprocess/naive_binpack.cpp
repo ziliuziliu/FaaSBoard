@@ -19,6 +19,7 @@ int main() {
     result = g.naive_checkerboard_partition(cut);
     print_log("begin partitioning");
     graphsets = g.partition(result);
+    print_log("end partitioning");
     for (;;) {
         try {
             double balance_ratio;

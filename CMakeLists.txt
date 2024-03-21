@@ -30,6 +30,9 @@ add_executable(naive_stagger ${CMAKE_SOURCE_DIR}/test/preprocess/naive_stagger.c
 add_executable(optimal_binpack ${CMAKE_SOURCE_DIR}/test/preprocess/optimal_binpack.cpp)
 add_executable(row ${CMAKE_SOURCE_DIR}/test/preprocess/row.cpp)
 add_executable(column ${CMAKE_SOURCE_DIR}/test/preprocess/column.cpp)
+add_executable(mondriaan_row_column ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_row_column.cpp)
+add_executable(mondriaan_column_row ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_column_row.cpp)
+add_executable(test ${CMAKE_SOURCE_DIR}/test/preprocess/test.cpp)
 
 # Link OpenMP
 target_link_libraries(naive_binpack PRIVATE OpenMP::OpenMP_CXX)
@@ -38,3 +41,6 @@ target_link_libraries(naive_stagger PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(optimal_binpack PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(row PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(column PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(mondriaan_row_column PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(mondriaan_column_row PRIVATE OpenMP::OpenMP_CXX)
+target_link_libraries(test PRIVATE OpenMP::OpenMP_CXX) 

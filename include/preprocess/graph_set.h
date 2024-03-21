@@ -171,13 +171,7 @@ public:
         uint64_t total_comm = 0, max_comm, min_comm;
         double avg_comm;
         std::vector<uint64_t> comms;
-        bitmap *recv_map = new bitmap(graphsets[0] -> meta.total_v);
-        bitmap *send_map = new bitmap(graphsets[0] -> meta.total_v);
-        bitmap *manage_map = new bitmap(graphsets[0] -> meta.total_v);
         for (auto graphset: graphsets) {
-            recv_map -> clear();
-            send_map -> clear();
-            manage_map -> clear();
             bitmap *ret1, *ret2, *ret3;
             ret1 = graphset -> manage_map -> NOT();
             ret2 = graphset -> recv_map -> AND(ret1);

@@ -32,6 +32,7 @@ int main() {
             std::cout << e.what() << std::endl;
         }
     }
+    print_log("end partitioning");
 
     return 0;
 }

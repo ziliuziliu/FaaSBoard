@@ -48,7 +48,7 @@ public:
             edge_buffer[i] = mapping[edge_buffer[i]];
     }
 
-    void from_txt(std::string path, bool hash = true) {
+    void read_txt(std::string path, bool hash = true) {
         print_log("start reading txt");
         FILE *txt_file = fopen(path.c_str(), "r");
         char *line = new char[100]; 
@@ -119,6 +119,23 @@ public:
         print_log("end saving csr");
     }
 
+    void save_metis(std::string path) {
+        print_log("start saving metis");
+        FILE *metis_file = fopen(path.c_str(), "w");
+        fprintf(metis_file, "%u %u\n", meta.total_v, meta.total_e);
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            if (i % 1000000 == 0)
+                print_log("save " + std::to_string(i) + " vertex");
+            for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++)
+                fprintf(metis_file, "%u ", in_source[j] + 1);
+            for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++)
+                fprintf(metis_file, "%u ", out_dest[j] + 1);
+            fprintf(metis_file, "\n");
+        }
+        fclose(metis_file);
+        print_log("end saving metis");
+    }
+
     partition_result row_partition(int total_block) {
         partition_result result(total_block, 1);
         uint64_t current_edges = 0, previous_from_source = 0;
@@ -147,6 +164,76 @@ public:
         }
         result.add(0, meta.total_v, previous_from_dest, meta.total_v, current_edges);
         return result;
+    }
+
+    // require total_block to be square number
+    partition_result mondriaan_partition_row_column(int total_block) {
+        int cut = sqrt(total_block);
+        partition_result row_result = row_partition(cut);
+        partition_result final_result;
+        #pragma omp parallel for
+        for (int t = 0; t < (int)row_result.blocks.size(); t++) {
+            partition_block block = row_result.blocks[t];
+            uint32_t accum_edges = 0, previous_from_dest = 0;
+            for (uint32_t i = 0; i < meta.total_v; i++) {
+                if (accum_edges * cut >= block.edges) {
+                    #pragma omp critical
+                    {
+                        final_result.add(block.from_source, block.to_source, previous_from_dest, i, accum_edges);
+                        accum_edges = 0;
+                        previous_from_dest = i;
+                    }
+                }
+                uint32_t current_edges = 0;
+                for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
+                    uint32_t source = in_source[j];
+                    if (source >= block.from_source && source < block.to_source) {
+                        current_edges++;
+                    }
+                }
+                accum_edges += current_edges;
+            }
+            #pragma omp critical
+            {
+                final_result.add(block.from_source, block.to_source, previous_from_dest, meta.total_v, accum_edges);
+            }
+        }
+        return final_result;
+    }
+
+    // require total_block to be square number
+    partition_result mondriaan_partition_column_row(int total_block) {
+        int cut = sqrt(total_block);
+        partition_result column_result = column_partition(cut);
+        partition_result final_result;
+        #pragma omp parallel for
+        for (int t = 0; t < (int)column_result.blocks.size(); t++) {
+            partition_block block = column_result.blocks[t];
+            uint32_t accum_edges = 0, previous_from_source = 0;
+            for (uint32_t i = 0; i < meta.total_v; i++) {
+                if (accum_edges * cut >= block.edges) {
+                    #pragma omp critical
+                    {
+                        final_result.add(previous_from_source, i, block.from_dest, block.to_dest, accum_edges);
+                        accum_edges = 0;
+                        previous_from_source = i;
+                    }
+                }
+                uint32_t current_edges = 0;
+                for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
+                    uint32_t dest = out_dest[j];
+                    if (dest >= block.from_dest && dest < block.to_dest) {
+                        current_edges++;
+                    }
+                }
+                accum_edges += current_edges;
+            }
+            #pragma omp critical
+            {
+                final_result.add(previous_from_source, meta.total_v, block.from_dest, block.to_dest, accum_edges);
+            }
+        }
+        return final_result;
     }
 
     partition_result generate_checkerboard_partition_from_cuts(int cut, std::vector<uint32_t> cuts) {
@@ -290,43 +377,35 @@ public:
         return generate_checkerboard_partition_from_cuts(cut, result_cuts);
     }
 
-    std::vector<graph_set<T> *> partition(partition_result result) {       
+    std::vector<graph_set<T> *> partition(partition_result result) {
         std::vector<graph<T> *> subgraphs;
         for (auto block: result.blocks)
             subgraphs.push_back(new graph<T>(block, meta));
-        sort(subgraphs.begin(), subgraphs.end(), graph<T>::column_order);
         #pragma omp parallel for
-        for (int t = 0; t < result.column; t++) {
-            for (uint32_t i = subgraphs[t * result.row] -> from_dest; i < subgraphs[t * result.row] -> to_dest; i++) {
-                int ttp = 0;
-                for (int tt = 0; tt < result.row; tt++)
-                    subgraphs[t * result.row + tt] -> begin_add_edge(i, INCOMING);
+        for (int t = 0; t < (int)subgraphs.size(); t++) {
+            graph<T> *subgraph = subgraphs[t];
+            for (uint32_t i = subgraph -> from_dest; i < subgraph -> to_dest; i++) {
+                subgraph -> begin_add_edge(i, INCOMING);
                 for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
-                    while (ttp < result.row && subgraphs[t * result.row + ttp] -> to_source <= source)
-                        ttp++;
-                    subgraphs[t * result.row + ttp] -> add_edge(source, i, INCOMING);
+                    if (source >= subgraph -> from_source && source < subgraph -> to_source)
+                        subgraph -> add_edge(source, i, INCOMING);
                 }
             }
-            for (int tt = 0; tt < result.row; tt++)
-                subgraphs[t * result.row + tt] -> end_add_edge(INCOMING);
+            subgraph -> end_add_edge(INCOMING);
         }
-        sort(subgraphs.begin(), subgraphs.end(), graph<T>::row_order);
         #pragma omp parallel for
-        for (int t = 0; t < result.row; t++) {
-            for (uint32_t i = subgraphs[t * result.column] -> from_source; i < subgraphs[t * result.column] -> to_source; i++) {
-                int ttp = 0;
-                for (int tt = 0; tt < result.column; tt++)
-                    subgraphs[t * result.column + tt] -> begin_add_edge(i, OUTGOING);
+        for (int t = 0; t < (int)subgraphs.size(); t++) {
+            graph<T> *subgraph = subgraphs[t];
+            for (uint32_t i = subgraph -> from_source; i < subgraph -> to_source; i++) {
+                subgraph -> begin_add_edge(i, OUTGOING);
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
-                    while (ttp < result.column && subgraphs[t * result.column + ttp] -> to_dest <= dest)
-                        ttp++;
-                    subgraphs[t * result.column + ttp] -> add_edge(i, dest, OUTGOING);
+                    if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest)
+                        subgraph -> add_edge(i, dest, OUTGOING);
                 }
             }
-            for (int tt = 0; tt < result.column; tt++)
-                subgraphs[t * result.column + tt] -> end_add_edge(OUTGOING);
+            subgraph -> end_add_edge(OUTGOING);
         }
         std::vector<graph_set<T> *> graphsets;
         #pragma omp parallel for
