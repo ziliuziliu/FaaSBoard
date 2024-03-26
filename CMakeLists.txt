@@ -34,7 +34,8 @@ add_executable(row ${CMAKE_SOURCE_DIR}/test/preprocess/row.cpp)
 add_executable(column ${CMAKE_SOURCE_DIR}/test/preprocess/column.cpp)
 add_executable(mondriaan_row_column ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_row_column.cpp)
 add_executable(mondriaan_column_row ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_column_row.cpp)
-add_executable(cpu_test ${CMAKE_SOURCE_DIR}/test/preprocess/cpu_test.cpp)
+add_executable(cpu_test ${CMAKE_SOURCE_DIR}/test/others/cpu_test.cpp)
+add_executable(weight_test ${CMAKE_SOURCE_DIR}/test/others/weight_test.cpp)
 
 # Link OpenMP
 target_link_libraries(naive_binpack PRIVATE OpenMP::OpenMP_CXX)
@@ -46,6 +47,7 @@ target_link_libraries(column PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(mondriaan_row_column PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(mondriaan_column_row PRIVATE OpenMP::OpenMP_CXX)
 target_link_libraries(cpu_test PRIVATE OpenMP::OpenMP_CXX AWS::aws-lambda-runtime) 
+target_link_libraries(weight_test PRIVATE OpenMP::OpenMP_CXX)
 
 # create zip
 aws_lambda_package_target(cpu_test)

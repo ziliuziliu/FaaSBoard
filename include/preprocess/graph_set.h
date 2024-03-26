@@ -25,9 +25,9 @@ public:
         send_map = new bitmap(meta.total_v);
         manage_map = new bitmap(meta.total_v);
         for (uint32_t v = subgraph -> from_source; v < subgraph -> to_source; v++) {
-            std::tuple<uint32_t *, uint32_t> out_edge_tuple = subgraph -> out_edge(v);
+            std::tuple<uint32_t *, T *, uint32_t> out_edge_tuple = subgraph -> out_edge(v);
             uint32_t *out_edge = std::get<0>(out_edge_tuple);
-            uint32_t out_edge_cnt = std::get<1>(out_edge_tuple);
+            uint32_t out_edge_cnt = std::get<2>(out_edge_tuple);
             if (out_edge_cnt == 0) continue;
             recv_map -> add(v);
             for (uint32_t i = 0; i < out_edge_cnt; i++)

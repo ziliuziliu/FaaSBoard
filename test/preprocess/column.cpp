@@ -2,22 +2,23 @@
 #include "preprocess/graph_set.h"
 #include "preprocess/partition.h"
 #include "util/print.h"
+#include "util/types.h"
 
 #include <cstring>
 
 int main() {
 
-    raw_graph<int> g(41652230, 1468365182);
+    raw_graph<empty> g(41652230, 1468365182);
     g.read_csr("/data/twitter-2010.csr");
 
     partition_result result;
-    std::vector<graph_set<int> *> graphsets;
+    std::vector<graph_set<empty> *> graphsets;
     int total_block = 16;
 
     print_log("column cut");
     result = g.column_partition(total_block);
     graphsets = g.partition(result);
-    graph_set<int>::simulation(graphsets);
+    graph_set<empty>::simulation(graphsets);
 
     return 0;
 }

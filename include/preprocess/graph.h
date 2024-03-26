@@ -10,8 +10,6 @@
 #include <cstdint>
 #include <tuple>
 
-// TODO: build lambda functions
-
 struct graph_meta {
 
     uint32_t total_v, total_e;
@@ -27,9 +25,10 @@ class graph {
 
 public:
 
+    graph_meta meta;
+    bool weighted;
     uint32_t from_source, to_source, from_dest, to_dest, edges;
     uint32_t *in_offset, *in_source, *out_offset, *out_dest;
-    graph_meta meta;
     T *in_weight, *out_weight;
 
     graph() {}
@@ -37,6 +36,7 @@ public:
     graph(partition_block block, graph_meta meta):from_source(block.from_source), to_source(block.to_source),
                                  from_dest(block.from_dest), to_dest(block.to_dest),
                                  edges(block.edges), meta(meta) {
+        weighted = !std::is_void<T>::value;
         out_offset = new uint32_t[to_source - from_source + 1]();
         out_dest = new uint32_t[block.edges]();
         in_offset = new uint32_t[to_dest - from_dest + 1]();
@@ -79,6 +79,17 @@ public:
             in_source[in_offset[v - from_dest]++] = u;
     }
 
+    void add_edge(uint32_t u, uint32_t v, T w, int direction) {
+        if (direction == OUTGOING) {
+            out_dest[out_offset[u - from_source]] = v;
+            out_weight[out_offset[u - from_source]++] = w;
+        }
+        else if (direction == INCOMING) {
+            in_source[in_offset[v - from_dest]] = u;
+            in_weight[in_offset[v - from_dest]++] = w;
+        }
+    }
+
     void end_add_edge(int direction) {
         if (direction == OUTGOING) {
             for (uint32_t i = to_source; i > from_source; i--)
@@ -91,18 +102,16 @@ public:
         }
     }
 
-    uint32_t edge_cnt() {
-        return edges;
-    }
-
-    std::tuple<uint32_t *, uint32_t> in_edge(uint32_t v) {
+    std::tuple<uint32_t *, T *, uint32_t> in_edge(uint32_t v) {
         v -= from_dest;
-        return std::make_tuple(in_source + in_offset[v], in_offset[v + 1] - in_offset[v]);
+        T *weight = weighted ? in_weight + in_offset[v] : nullptr;
+        return std::make_tuple(in_source + in_offset[v], weight, in_offset[v + 1] - in_offset[v]);
     }
 
-    std::tuple<uint32_t *, uint32_t> out_edge(uint32_t v) {
+    std::tuple<uint32_t *, T *, uint32_t> out_edge(uint32_t v) {
         v -= from_source;
-        return std::make_tuple(out_dest + out_offset[v], out_offset[v + 1] - out_offset[v]);
+        T *weight = weighted ? out_weight + out_offset[v] : nullptr;
+        return std::make_tuple(out_dest + out_offset[v], weight, out_offset[v + 1] - out_offset[v]);
     }
 
     std::vector<uint32_t> get_boundary() {

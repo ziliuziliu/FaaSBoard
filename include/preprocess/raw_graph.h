@@ -17,14 +17,13 @@
 #include <omp.h>
 #include <errno.h>
 
-// TODO: add weight support
-
 template <class T>
 class raw_graph {
 
 public:
 
     graph_meta meta;
+    bool weighted;
     uint32_t *in_offset, *in_source, *out_offset, *out_dest;
     T *in_weight, *out_weight;
 
@@ -32,10 +31,15 @@ public:
 
     raw_graph(uint32_t total_v, uint32_t total_e) {
         meta = graph_meta(total_v, total_e);
+        weighted = !std::is_void<T>::value;
         in_offset = new uint32_t[meta.total_v + 1]{};
         in_source = new uint32_t[meta.total_e]{};
         out_offset = new uint32_t[meta.total_v + 1]{};
         out_dest = new uint32_t[meta.total_e]{};
+        if (weighted) {
+            in_weight = new T[meta.total_e]{};
+            out_weight = new T[meta.total_e]{};
+        }
     }
 
     void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t edge_count) {
@@ -48,15 +52,16 @@ public:
             edge_buffer[i] = mapping[edge_buffer[i]];
     }
 
+    // w = (u + v) % 100
     void read_txt(std::string path, bool hash = true) {
         print_log("start reading txt");
         FILE *txt_file = fopen(path.c_str(), "r");
         char *line = new char[100]; 
         size_t line_size = 0;
-        uint32_t *mapping = new uint32_t[meta.total_v * 3];
-        uint32_t *edge_buffer = new uint32_t[uint64_t(meta.total_e) * 2];
         uint64_t edge_buffer_count = 0;
         uint32_t mx = 0, x, y;
+        uint32_t *mapping = new uint32_t[meta.total_v * 3];
+        uint32_t *edge_buffer = new uint32_t[uint64_t(meta.total_e) * 2];
         while (getline(&line, &line_size, txt_file) > 0) {
             if (line[0] == '#') continue;
             parse_line(line, line_size, &x, &y);
@@ -84,8 +89,12 @@ public:
         }
         for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
             uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
-            in_source[in_offset[v]++] = u;
-            out_dest[out_offset[u]++] = v;
+            in_source[in_offset[v]] = u;
+            out_dest[out_offset[u]] = v;
+            if (weighted) {
+                in_weight[in_offset[v]++] = (u + v) % 100;
+                out_weight[out_offset[u]++] = (u + v) % 100;
+            }
         }
         for (uint32_t i = meta.total_v; i > 0; i--) {
             in_offset[i] = in_offset[i - 1];
@@ -104,6 +113,10 @@ public:
         fread(in_source, 4, meta.total_e, csr_file);
         fread(out_offset, 4, meta.total_v + 1, csr_file);
         fread(out_dest, 4, meta.total_e, csr_file);
+        if (weighted) {
+            fread(in_weight, sizeof(T), meta.total_e, csr_file);
+            fread(out_weight, sizeof(T), meta.total_e, csr_file);
+        }
         fclose(csr_file);
         print_log("end reading csr");
     }
@@ -115,6 +128,10 @@ public:
         fwrite(in_source, 4, meta.total_e, csr_file);
         fwrite(out_offset, 4, meta.total_v + 1, csr_file);
         fwrite(out_dest, 4, meta.total_e, csr_file);
+        if (weighted) {
+            fwrite(in_weight, sizeof(T), meta.total_e, csr_file);
+            fwrite(out_weight, sizeof(T), meta.total_e, csr_file);
+        }
         fclose(csr_file);
         print_log("end saving csr");
     }
@@ -388,8 +405,14 @@ public:
                 subgraph -> begin_add_edge(i, INCOMING);
                 for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
-                    if (source >= subgraph -> from_source && source < subgraph -> to_source)
-                        subgraph -> add_edge(source, i, INCOMING);
+                    if (source >= subgraph -> from_source && source < subgraph -> to_source) {
+                        if (!weighted)
+                            subgraph -> add_edge(source, i, INCOMING);
+                        else {
+                            T weight = in_weight[j];
+                            subgraph -> add_edge(source, i, weight, INCOMING);
+                        }
+                    }
                 }
             }
             subgraph -> end_add_edge(INCOMING);
@@ -401,8 +424,14 @@ public:
                 subgraph -> begin_add_edge(i, OUTGOING);
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
-                    if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest)
-                        subgraph -> add_edge(i, dest, OUTGOING);
+                    if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest) {
+                        if (!weighted)
+                            subgraph -> add_edge(i, dest, OUTGOING);
+                        else {
+                            T weight = out_weight[j];
+                            subgraph -> add_edge(i, dest, weight, OUTGOING);
+                        }
+                    }
                 }
             }
             subgraph -> end_add_edge(OUTGOING);
