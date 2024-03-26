@@ -1,0 +1,3 @@
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambda-install
+make
+make aws-lambda-package-cpu_test
