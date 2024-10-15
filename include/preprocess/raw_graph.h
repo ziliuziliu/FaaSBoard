@@ -4,9 +4,9 @@
 #include "graph.h"
 #include "graph_set.h"
 #include "partition.h"
-#include "util/utils.h"
-#include "util/print.h"
+#include "util/io.h"
 
+#include <algorithm>
 #include <string>
 #include <iostream>
 #include <fstream>
@@ -17,7 +17,7 @@
 #include <omp.h>
 #include <errno.h>
 
-template <class T>
+template <class ewT>
 class raw_graph {
 
 public:
@@ -25,132 +25,36 @@ public:
     graph_meta meta;
     bool weighted;
     uint32_t *in_offset, *in_source, *out_offset, *out_dest;
-    T *in_weight, *out_weight;
+    ewT *in_weight, *out_weight;
 
     raw_graph() {}
 
     raw_graph(uint32_t total_v, uint32_t total_e) {
         meta = graph_meta(total_v, total_e);
-        weighted = !std::is_void<T>::value;
+        weighted = !std::is_same<ewT, void *>::value;
         in_offset = new uint32_t[meta.total_v + 1]{};
         in_source = new uint32_t[meta.total_e]{};
         out_offset = new uint32_t[meta.total_v + 1]{};
         out_dest = new uint32_t[meta.total_e]{};
         if (weighted) {
-            in_weight = new T[meta.total_e]{};
-            out_weight = new T[meta.total_e]{};
+            in_weight = new ewT[meta.total_e]{};
+            out_weight = new ewT[meta.total_e]{};
         }
     }
 
-    void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t edge_count) {
-        for (uint32_t i = 1; i <= mx; i++)
-            mapping[i] += mapping[i - 1];
-        for (uint32_t i = 0; i <= mx; i++)
-            mapping[i]--;
-        #pragma omp parallel for
-        for (uint64_t i = 0; i < edge_count; i++)
-            edge_buffer[i] = mapping[edge_buffer[i]];
-    }
-
-    // w = (u + v) % 100
-    void read_txt(std::string path, bool hash = true) {
-        print_log("start reading txt");
-        FILE *txt_file = fopen(path.c_str(), "r");
-        char *line = new char[100]; 
-        size_t line_size = 0;
-        uint64_t edge_buffer_count = 0;
-        uint32_t mx = 0, x, y;
-        uint32_t *mapping = new uint32_t[meta.total_v * 3];
-        uint32_t *edge_buffer = new uint32_t[uint64_t(meta.total_e) * 2];
-        while (getline(&line, &line_size, txt_file) > 0) {
-            if (line[0] == '#') continue;
-            parse_line(line, line_size, &x, &y);
-            edge_buffer[edge_buffer_count++] = x;
-            edge_buffer[edge_buffer_count++] = y;
-            if (edge_buffer_count % 10000000 == 0)
-                print_log("current size " + std::to_string(edge_buffer_count));
-            mapping[x] = mapping[y] = 1;
-            mx = std::max(mx, std::max(x, y));
-        }
-        fclose(txt_file);
-        print_log("have read everything, size " + std::to_string(edge_buffer_count));
-        print_log("start hashing");
-        if (hash)
-            vertex_hash(mapping, mx, edge_buffer, edge_buffer_count);
-        print_log("start building csr");
-        for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
-            uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
-            in_offset[v + 1]++; 
-            out_offset[u + 1]++;
-        }
-        for (uint32_t i = 1; i <= meta.total_v; i++) {
-            in_offset[i] += in_offset[i - 1];
-            out_offset[i] += out_offset[i - 1];
-        }
-        for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
-            uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
-            in_source[in_offset[v]] = u;
-            out_dest[out_offset[u]] = v;
-            if (weighted) {
-                in_weight[in_offset[v]++] = (u + v) % 100;
-                out_weight[out_offset[u]++] = (u + v) % 100;
-            }
-        }
-        for (uint32_t i = meta.total_v; i > 0; i--) {
-            in_offset[i] = in_offset[i - 1];
-            out_offset[i] = out_offset[i - 1];
-        }
-        in_offset[0] = out_offset[0] = 0;
-        delete [] edge_buffer;
-        delete [] mapping;
-        print_log("end reading txt");
+    void read_txt(std::string path) {
+        read_txt_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, meta.total_v, meta.total_e);
     }
 
     void read_csr(std::string path) {
-        print_log("start reading csr");
-        FILE *csr_file = fopen(path.c_str(), "rb");
-        fread(in_offset, 4, meta.total_v + 1, csr_file);
-        fread(in_source, 4, meta.total_e, csr_file);
-        fread(out_offset, 4, meta.total_v + 1, csr_file);
-        fread(out_dest, 4, meta.total_e, csr_file);
-        if (weighted) {
-            fread(in_weight, sizeof(T), meta.total_e, csr_file);
-            fread(out_weight, sizeof(T), meta.total_e, csr_file);
-        }
-        fclose(csr_file);
-        print_log("end reading csr");
-    }
-    
-    void save_csr(std::string path) {
-        print_log("start saving csr");
-        FILE *csr_file = fopen(path.c_str(), "wb");
-        fwrite(in_offset, 4, meta.total_v + 1, csr_file);
-        fwrite(in_source, 4, meta.total_e, csr_file);
-        fwrite(out_offset, 4, meta.total_v + 1, csr_file);
-        fwrite(out_dest, 4, meta.total_e, csr_file);
-        if (weighted) {
-            fwrite(in_weight, sizeof(T), meta.total_e, csr_file);
-            fwrite(out_weight, sizeof(T), meta.total_e, csr_file);
-        }
-        fclose(csr_file);
-        print_log("end saving csr");
+        read_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, meta.total_v, meta.total_v, meta.total_e);
     }
 
-    void save_metis(std::string path) {
-        print_log("start saving metis");
-        FILE *metis_file = fopen(path.c_str(), "w");
-        fprintf(metis_file, "%u %u\n", meta.total_v, meta.total_e);
-        for (uint32_t i = 0; i < meta.total_v; i++) {
-            if (i % 1000000 == 0)
-                print_log("save " + std::to_string(i) + " vertex");
-            for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++)
-                fprintf(metis_file, "%u ", in_source[j] + 1);
-            for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++)
-                fprintf(metis_file, "%u ", out_dest[j] + 1);
-            fprintf(metis_file, "\n");
-        }
-        fclose(metis_file);
-        print_log("end saving metis");
+    void save_csr(std::string path) {
+        save_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, meta.total_v, meta.total_v, meta.total_e);
     }
 
     partition_result row_partition(int total_block) {
@@ -314,7 +218,7 @@ public:
         uint32_t left = 1, right = meta.total_e;
         std::vector<uint32_t> result_cuts(cut + 1);
         while ((double)(right - left) / right >= 0.01) {
-            print_log("left: " + std::to_string((int)left) + ", right: " + std::to_string((int)right));
+            LOG(INFO) << "left: " << left << ", right: " << right;
             std::vector<uint32_t> check_list = generate_workload_limit_check_list(left, right);
             #pragma omp parallel for
             for (int t = 0; t < (int)check_list.size(); t++) {
@@ -394,22 +298,22 @@ public:
         return generate_checkerboard_partition_from_cuts(cut, result_cuts);
     }
 
-    std::vector<graph_set<T> *> partition(partition_result result) {
-        std::vector<graph<T> *> subgraphs;
+    std::vector<graph_set<ewT> *> partition(partition_result result) {
+        std::vector<graph<ewT> *> subgraphs;
         for (auto block: result.blocks)
-            subgraphs.push_back(new graph<T>(block, meta));
+            subgraphs.push_back(new graph<ewT>(block, meta));
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
-            graph<T> *subgraph = subgraphs[t];
+            graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_dest; i < subgraph -> to_dest; i++) {
                 subgraph -> begin_add_edge(i, INCOMING);
                 for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
                     if (source >= subgraph -> from_source && source < subgraph -> to_source) {
-                        if (!weighted)
+                        if (!weighted) {
                             subgraph -> add_edge(source, i, INCOMING);
-                        else {
-                            T weight = in_weight[j];
+                        } else {
+                            ewT weight = in_weight[j];
                             subgraph -> add_edge(source, i, weight, INCOMING);
                         }
                     }
@@ -419,16 +323,16 @@ public:
         }
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
-            graph<T> *subgraph = subgraphs[t];
+            graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_source; i < subgraph -> to_source; i++) {
                 subgraph -> begin_add_edge(i, OUTGOING);
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest) {
-                        if (!weighted)
+                        if (!weighted) {
                             subgraph -> add_edge(i, dest, OUTGOING);
-                        else {
-                            T weight = out_weight[j];
+                        } else {
+                            ewT weight = out_weight[j];
                             subgraph -> add_edge(i, dest, weight, OUTGOING);
                         }
                     }
@@ -436,33 +340,25 @@ public:
             }
             subgraph -> end_add_edge(OUTGOING);
         }
-        std::vector<graph_set<T> *> graphsets;
+        std::vector<graph_set<ewT> *> graphsets(subgraphs.size(), nullptr);
         #pragma omp parallel for
         for (int i = 0; i < (int)subgraphs.size(); i++) {
-            graph_set<T> *graphset = new graph_set<T>(subgraphs[i], meta);
+            graph_set<ewT> *graphset = new graph_set<ewT>(subgraphs[i], meta);
             #pragma omp critical
             {
-                graphsets.push_back(graphset);
+                graphsets[i] = graphset;
             }
         }
         return graphsets;
     }
 
     void print() {
-        std::cout << "Total V: " << meta.total_v << std::endl;
-        std::cout << "Total E: " << meta.total_e << std::endl;
-        std::cout << "In Offset: ";
-        print_array<uint32_t>(in_offset, meta.total_v + 1);
-        std::cout << std::endl;
-        std::cout << "In Source: ";
-        print_array<uint32_t>(in_source, meta.total_e);
-        std::cout << std::endl;
-        std::cout << "Out Offset: ";
-        print_array<uint32_t>(out_offset, meta.total_v + 1);
-        std::cout << std::endl;
-        std::cout << "Out Dest: ";
-        print_array<uint32_t>(out_dest, meta.total_e);
-        std::cout << std::endl;
+        LOG(INFO) << "Total V: " << meta.total_v;
+        LOG(INFO) << "Total E: " << meta.total_e;
+        LOG(INFO) << "In Offset: " << log_array<uint32_t>(in_offset, meta.total_v + 1).str();
+        LOG(INFO) << "In Source: " << log_array<uint32_t>(in_source, meta.total_e).str();
+        LOG(INFO) << "Out Offset: " << log_array<uint32_t>(out_offset, meta.total_v + 1).str();
+        LOG(INFO) << "Out Dest: " << log_array<uint32_t>(out_dest, meta.total_e).str();
     }
 
 };

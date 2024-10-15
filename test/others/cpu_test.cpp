@@ -1,6 +1,5 @@
 #include <aws/lambda-runtime/runtime.h>
 #include <util/json.h>
-#include <util/print.h>
 #include <omp.h>
 
 using json = nlohmann::json;

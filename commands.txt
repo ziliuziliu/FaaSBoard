@@ -1,0 +1,4 @@
+cd build
+cmake ..
+make
+make aws-lambda-package-cpu_test

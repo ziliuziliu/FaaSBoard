@@ -1,7 +1,7 @@
 #include "preprocess/raw_graph.h"
 #include "preprocess/graph_set.h"
 #include "preprocess/partition.h"
-#include "util/print.h"
+#include "util/log.h"
 #include "util/types.h"
 
 #include <cstring>
@@ -15,7 +15,7 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16;
 
-    print_log("mondriaan_row_column cut");
+    LOG(INFO) << "mondriaan_row_column cut";
     result = g.mondriaan_partition_row_column(total_block);
     graphsets = g.partition(result);
     graph_set<empty>::simulation(graphsets);

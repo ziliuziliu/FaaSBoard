@@ -1,7 +1,7 @@
 #include "preprocess/raw_graph.h"
 #include "preprocess/graph_set.h"
 #include "preprocess/partition.h"
-#include "util/print.h"
+#include "util/log.h"
 #include "util/types.h"
 
 #include <cstring>
@@ -15,12 +15,12 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16, cut;
 
-    print_log("naive cut + stagger layout");
+    LOG(INFO) << "naive cut + stagger layout";
     cut = total_block;
     result = g.naive_checkerboard_partition(cut);
-    print_log("begin partitioning");
+    LOG(INFO) << "begin partitioning";
     graphsets = g.partition(result);
-    print_log("stagger placing");
+    LOG(INFO) << "stagger placing";
     graphsets = graph_set<empty>::stagger(graphsets, total_block);
     graph_set<empty>::simulation(graphsets);
 

@@ -1,8 +1,8 @@
 #include "preprocess/raw_graph.h"
 #include "preprocess/graph_set.h"
 #include "preprocess/partition.h"
-#include "util/print.h"
 #include "util/types.h"
+#include "util/log.h"
 
 #include <cstring>
 
@@ -15,10 +15,12 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16, cut;
 
-    print_log("optimal cut + binpack");
+    LOG(INFO) << "optimal cut + binpack";
     cut = sqrt((double)total_block) + 1;
     result = g.checkerboard_partition(cut);
-    print_log("begin partitioning");
+    double unbalance_ratio = result.get_unbalance_ratio();
+    LOG(INFO) << "unbalance ratio: " << unbalance_ratio;
+    LOG(INFO) << "begin partitioning";
     graphsets = g.partition(result);
     for (;;) {
         try {
@@ -30,10 +32,10 @@ int main() {
             std::vector<graph_set<empty> *> new_graphsets = graph_set<empty>::binpack(graphsets, total_block, balance_ratio);
             graph_set<empty>::simulation(new_graphsets);
         } catch (const std::runtime_error &e) {
-            std::cout << e.what() << std::endl;
+            LOG(FATAL) << e.what() << std::endl;
         }
     }
-    print_log("end partitioning");
+    LOG(INFO) << "end partitioning";
 
     return 0;
 }

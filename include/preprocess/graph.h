@@ -2,13 +2,14 @@
 #define _GRAPH_H
 
 #include "partition.h"
-#include "util/utils.h"
+#include "util/io.h"
 #include "util/bitmap.h"
-#include "util/print.h"
+#include "util/types.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <tuple>
+#include <cstdlib>
 
 struct graph_meta {
 
@@ -20,30 +21,37 @@ struct graph_meta {
 
 };
 
-template <class T>
+template <class ewT>
 class graph {
 
 public:
 
+    uint32_t id;
     graph_meta meta;
     bool weighted;
     uint32_t from_source, to_source, from_dest, to_dest, edges;
     uint32_t *in_offset, *in_source, *out_offset, *out_dest;
-    T *in_weight, *out_weight;
+    ewT *in_weight, *out_weight;
 
     graph() {}
 
-    graph(partition_block block, graph_meta meta):from_source(block.from_source), to_source(block.to_source),
+    graph(partition_block block, graph_meta meta): meta(meta),
+                                 from_source(block.from_source), to_source(block.to_source),
                                  from_dest(block.from_dest), to_dest(block.to_dest),
-                                 edges(block.edges), meta(meta) {
-        weighted = !std::is_void<T>::value;
+                                 edges(block.edges) {
+        id = rand();
+        weighted = !std::is_same<ewT, void *>::value;
         out_offset = new uint32_t[to_source - from_source + 1]();
         out_dest = new uint32_t[block.edges]();
         in_offset = new uint32_t[to_dest - from_dest + 1]();
         in_source = new uint32_t[block.edges]();
+        if (weighted) {
+            in_weight = new ewT[block.edges]();
+            out_weight = new ewT[block.edges]();
+        }
     }
 
-    static bool row_order(graph<T> *a, graph<T> *b) {
+    static bool row_order(graph<ewT> *a, graph<ewT> *b) {
         if (a -> from_source != b -> from_source && a -> to_source != b -> to_source)
             return a -> from_source < b -> from_source && a -> to_source < b -> to_source;
         if (a -> from_source == b -> from_source && a -> to_source == b -> to_source &&
@@ -52,7 +60,7 @@ public:
         return false;
     }
 
-    static bool column_order(graph<T> *a, graph<T> *b) {
+    static bool column_order(graph<ewT> *a, graph<ewT> *b) {
         if (a -> from_dest != b -> from_dest && a -> to_dest != b -> to_dest)
             return a -> from_dest < b -> from_dest && a -> to_dest < b -> to_dest;
         if (a -> from_dest == b -> from_dest && a -> to_dest == b -> to_dest &&
@@ -79,7 +87,7 @@ public:
             in_source[in_offset[v - from_dest]++] = u;
     }
 
-    void add_edge(uint32_t u, uint32_t v, T w, int direction) {
+    void add_edge(uint32_t u, uint32_t v, ewT w, int direction) {
         if (direction == OUTGOING) {
             out_dest[out_offset[u - from_source]] = v;
             out_weight[out_offset[u - from_source]++] = w;
@@ -102,15 +110,15 @@ public:
         }
     }
 
-    std::tuple<uint32_t *, T *, uint32_t> in_edge(uint32_t v) {
+    std::tuple<uint32_t *, ewT *, uint32_t> in_edge(uint32_t v) {
         v -= from_dest;
-        T *weight = weighted ? in_weight + in_offset[v] : nullptr;
+        ewT *weight = weighted ? in_weight + in_offset[v] : nullptr;
         return std::make_tuple(in_source + in_offset[v], weight, in_offset[v + 1] - in_offset[v]);
     }
 
-    std::tuple<uint32_t *, T *, uint32_t> out_edge(uint32_t v) {
+    std::tuple<uint32_t *, ewT *, uint32_t> out_edge(uint32_t v) {
         v -= from_source;
-        T *weight = weighted ? out_weight + out_offset[v] : nullptr;
+        ewT *weight = weighted ? out_weight + out_offset[v] : nullptr;
         return std::make_tuple(out_dest + out_offset[v], weight, out_offset[v + 1] - out_offset[v]);
     }
 
@@ -118,24 +126,20 @@ public:
         return std::vector<uint32_t>{from_source, to_source, from_dest, to_dest};
     }
 
-    void print() {
-        std::cout << "Block: ";
-        print_vector<uint32_t>(std::vector<uint32_t>{
-            from_source, to_source, from_dest, to_dest
-        });
-        std::cout << std::endl;
-        std::cout << "In Offset: ";
-        print_array<uint32_t>(in_offset, to_dest - from_dest + 1);
-        std::cout << std::endl;
-        std::cout << "In Source: ";
-        print_array<uint32_t>(in_source, edges);
-        std::cout << std::endl;
-        std::cout << "Out Offset: ";
-        print_array<uint32_t>(out_offset, to_source - from_source + 1);
-        std::cout << std::endl;
-        std::cout << "Out Dest: ";
-        print_array<uint32_t>(out_dest, edges);
-        std::cout << std::endl;
+    void print(bool detail) {
+        LOG(INFO) << "ID: " << id << ", Block: { " 
+                            << from_source << ", " 
+                            << to_source << ", " 
+                            << from_dest << ", " 
+                            << to_dest << " }, Size: "
+                            << edges;
+        if (!detail) {
+            return;
+        }
+        LOG(INFO) << "In Offset: " << log_array<uint32_t>(in_offset, to_dest - from_dest + 1).str();
+        LOG(INFO) << "In Source: " << log_array<uint32_t>(in_source, edges).str();
+        LOG(INFO) << "Out Offset: " << log_array<uint32_t>(out_offset, to_source - from_source + 1).str();
+        LOG(INFO) << "Out Dest: " << log_array<uint32_t>(out_dest, edges).str();
     }
 
 };

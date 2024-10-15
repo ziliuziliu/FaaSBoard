@@ -1,7 +1,7 @@
 #ifndef _PARTITION_H
 #define _PARTITION_H
 
-#include "util/print.h"
+#include "util/log.h"
 
 #include <vector>
 #include <cassert>
@@ -40,15 +40,25 @@ struct partition_result {
         ));
     }
 
+    double get_unbalance_ratio() {
+        double avg_workload = 0, max_workload = 0;
+        for (auto block : blocks) {
+            max_workload = std::max(max_workload, (double)block.edges);
+            avg_workload += block.edges;
+        }
+        avg_workload /= blocks.size();
+        return max_workload / avg_workload;
+    }
+
     void print() {
-        std::cout << "Total Blocks: " << blocks.size() << std::endl;
+        LOG(INFO) << "Total Blocks: " << blocks.size();
         for (auto block: blocks) {
-            std::cout << "Block1: ";
-            print_vector<uint32_t>(std::vector<uint32_t>{
-                block.from_source, block.to_source, block.from_dest, block.to_dest
-            });
-            std::cout << ", Size: " << block.edges << std::endl;
-            
+            LOG(INFO) << "Block: { " 
+                      << block.from_source << ", " 
+                      << block.to_source << ", " 
+                      << block.from_dest << ", " 
+                      << block.to_dest << " }, Size: " 
+                      << block.edges;
         }
     }
 
