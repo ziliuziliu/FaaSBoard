@@ -57,7 +57,7 @@ bool caas_segment_get_segment_type(uint32_t flag) {
 }
 
 void caas_segment_set_segment_type(uint32_t *flag, bool segment_type) {
-    *flag |= (segment_type << 30);
+    *flag = ((*flag) & ~(1 << 30)) | (segment_type << 30);
 }
 
 void caas_send_all(int fd, char *data, size_t len) {
@@ -152,7 +152,7 @@ public:
     virtual void caas_do() {}
 
     void print(int round, int index) {
-        LOG(INFO) << "round " << round << " graph " << index << " "
+        VLOG(2) << "round " << round << " graph " << index << " "
             << "[ " << start_index << ", " << start_index + vec_len - 1 << " ]: " 
             << "bitmap " << bm -> print().str() << " "
             << "value " << log_array<T>(vec, vec_len).str();
@@ -279,8 +279,7 @@ comm_object<T> *caas_make_comm_object(
 
 template <class T>
 bool caas_adaptive_segment(comm_object<T> *object) {
-    // TODO: decide to use dense or sparse based on some threshold
-    return CAAS_SPARSE;
+    return object -> bm -> size <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
 }
 
 template <class T>

@@ -28,7 +28,7 @@ void run() {
     int status_code = bind(server_fd, (sockaddr *)&server_address, sizeof(sockaddr_in));
     CHECK(status_code == 0) << "cannot bind to 20000";
     listen(server_fd, MAX_CONNECTION);
-    LOG(INFO) << "meta server started";
+    VLOG(1) << "meta server started";
     int epoll_fd = epoll_create1(0);
     epoll_event event, events[MAX_CONNECTION];
     event.events = EPOLLIN;

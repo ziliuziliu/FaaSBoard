@@ -7,7 +7,6 @@
 #include "util/flags.h"
 #include "util/bitmap.h"
 #include "util/readerwritercircularbuffer.h"
-#include "util/readerwriterqueue.h"
 #include "util/types.h"
 
 #include <sys/socket.h>
@@ -23,7 +22,6 @@
 #include <chrono>
 
 #define MAX_CONNECTION 4096
-#define WORKER_THREADS 16
 
 class segment_base {
     
@@ -69,8 +67,7 @@ public:
     }
 
     bool adaptive_segment() {
-        // TODO: decide to use dense or sparse based on some threshold
-        return CAAS_SPARSE;
+        return bm -> size <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
     }
 
     void initialize(uint32_t *header) {
@@ -84,13 +81,11 @@ public:
             return {(char *)data, (5 + bitmap_len + vec_len) << 2};
         } else {
             uint32_t segment_len = 5 + bitmap_len + bm -> size;
-            LOG(INFO) << "total " << bm -> size << " items";
             uint32_t *segment = new uint32_t[segment_len];
             uint32_t pos = 5 + bitmap_len;
             memcpy(segment, data, 20 + (bitmap_len << 2));
             for (uint32_t i = 0; i < (uint32_t)vec_len; i++) {
                 if (bm -> exist(i)) {
-                    LOG(INFO) << "insert " << i << " value " << data[5 + bitmap_len + i];
                     segment[pos] = data[5 + bitmap_len + i];
                     pos++;
                 }
@@ -127,7 +122,7 @@ public:
 
 };
 
-moodycamel::BlockingReaderWriterQueue<int> *fd_queue[WORKER_THREADS];
+moodycamel::BlockingReaderWriterCircularBuffer<int> **fd_queue;
 std::unordered_map<int, int> fd_flag;
 std::unordered_map<uint32_t, std::unordered_map<uint32_t, segment_base *>> segment_table;
 std::unordered_map<int, segment_base *> fd_segment;
@@ -140,7 +135,7 @@ void work(int thread_id) {
         if (raw_data.first == nullptr) {
             close(client_fd);
             cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
-            LOG(INFO) << "fd " << client_fd << " disconnected";
+            VLOG(1) << "fd " << client_fd << " disconnected";
             continue;
         }
         uint32_t *data = (uint32_t *)raw_data.first;
@@ -149,7 +144,7 @@ void work(int thread_id) {
         segment = segment_table[request_id][object_id];
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_MASKED_BROADCAST:
-                LOG(INFO) << "masked broadcast from request " << request_id 
+                VLOG(1) << "masked broadcast from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
                 #pragma omp parallel for
@@ -159,7 +154,7 @@ void work(int thread_id) {
                 delete [] raw_data.first;
                 break;
             case CAAS_MASKED_REDUCE:
-                LOG(INFO) << "masked reduce from request " << request_id 
+                VLOG(1) << "masked reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
                 segment -> m.lock();
@@ -180,7 +175,7 @@ void work(int thread_id) {
                 segment -> m.unlock();
                 break;
             case CAAS_ALLREDUCE:
-                LOG(INFO) << "all reduce from request " << request_id 
+                VLOG(1) << "all reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
                 segment -> m.lock();
@@ -207,8 +202,10 @@ void work(int thread_id) {
 }
 
 void run() {
-    for (int i = 0; i < WORKER_THREADS; i++) {
-        fd_queue[i] = new moodycamel::BlockingReaderWriterQueue<int>(MAX_CONNECTION);
+    VLOG(1) << "proxy running on " << FLAGS_cores << " cores";
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
+    for (int i = 0; i < (int)FLAGS_cores; i++) {
+        fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
         std::thread worker(work, i);
         worker.detach();
     }
@@ -220,7 +217,7 @@ void run() {
     int status_code = bind(server_fd, (sockaddr *)&server_address, sizeof(sockaddr_in));
     CHECK(status_code == 0) << "cannot bind to 20001";
     listen(server_fd, MAX_CONNECTION);
-    LOG(INFO) << "proxy server started";
+    VLOG(1) << "proxy server started";
     int epoll_fd = epoll_create1(0);
     epoll_event event, events[MAX_CONNECTION];
     event.events = EPOLLIN;
@@ -244,7 +241,7 @@ void run() {
                 uint32_t vec_len = connect_data[2], base_vertex_value = connect_data[3];
                 uint32_t flag = connect_data[4];
                 bool has_bitmap = connect_data[5];
-                LOG(INFO) << "connection from request " << request_id 
+                VLOG(1) << "connection from request " << request_id 
                     << " object " << object_id 
                     << " vec_len " << vec_len
                     << " assigned fd " << client_fd;
@@ -263,7 +260,7 @@ void run() {
                     segment -> fds.push_back(client_fd);
                 }
             } else if (events[i].events & EPOLLHUP) {
-                LOG(INFO) << "fd " << events[i].data.fd << " disconnected";
+                VLOG(1) << "fd " << events[i].data.fd << " disconnected";
             } else if (events[i].events & EPOLLERR) {
                 LOG(FATAL) << "fd " << events[i].data.fd << " error";
             } else {
@@ -275,14 +272,14 @@ void run() {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
-                for (int i = 0; i < WORKER_THREADS; i++) {
+                for (int i = 0; i < (int)FLAGS_cores; i++) {
                     int current_size = fd_queue[i] -> size_approx();
                     if (current_size < mn_size) {
                         mn_size = current_size;
                         mn_thread_id = i;
                     }
                 }
-                fd_queue[mn_thread_id] -> enqueue(client_fd);
+                fd_queue[mn_thread_id] -> wait_enqueue(client_fd);
             }
         }
     }

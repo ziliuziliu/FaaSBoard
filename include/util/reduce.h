@@ -193,7 +193,6 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             for (uint32_t i = 0; i < len; i++) {
                 if (b_bm -> exist(i)) {
                     uint32_t new_val = f(aa[i], bb[pos]);
-                    LOG(INFO) << "Hit " << i << " a " << aa[i] << " b " << bb[pos];
                     if (new_val != aa[i]) {
                         a_bm -> add(i);
                     }

@@ -35,7 +35,7 @@ void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t
 template <class T>
 void read_txt_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
     T *in_weight, T *out_weight, bool weighted, uint32_t total_v, uint32_t total_e) {
-    LOG(INFO) << "start reading txt";
+    VLOG(1) << "start reading txt";
     FILE *txt_file = fopen(path.c_str(), "r");
     char *line = new char[100]; 
     size_t line_size = 0;
@@ -48,17 +48,20 @@ void read_txt_util(std::string path, uint32_t *in_offset, uint32_t *in_source, u
         parse_line(line, line_size, &x, &y);
         edge_buffer[edge_buffer_count++] = x;
         edge_buffer[edge_buffer_count++] = y;
+        if (edge_buffer_count <= 20) {
+            VLOG(1) << x << " " << y;
+        }
         if (edge_buffer_count % 10000000 == 0) {
-            LOG(INFO) << "current size " << edge_buffer_count;
+            VLOG(1) << "current size " << edge_buffer_count;
         }
         mapping[x] = mapping[y] = 1;
         mx = std::max(mx, std::max(x, y));
     }
     fclose(txt_file);
-    LOG(INFO) << "have read everything, size " << edge_buffer_count / 2;
-    LOG(INFO) << "start hashing";
+    VLOG(1) << "have read everything, size " << edge_buffer_count / 2;
+    VLOG(1) << "start hashing";
     vertex_hash(mapping, mx, edge_buffer, edge_buffer_count);
-    LOG(INFO) << "start building csr";
+    VLOG(1) << "start building csr";
     for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
         uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
         in_offset[v + 1]++; 
@@ -86,18 +89,18 @@ void read_txt_util(std::string path, uint32_t *in_offset, uint32_t *in_source, u
     in_offset[0] = out_offset[0] = 0;
     delete [] edge_buffer;
     delete [] mapping;
-    LOG(INFO) << "end reading txt";
+    VLOG(1) << "end reading txt";
 }
 
 template <class T>
 void save_metis_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
     T *in_weight, T *out_weight, bool weighted, uint32_t total_v, uint32_t total_e) {
-    LOG(INFO) << "start saving metis";
+    VLOG(1) << "start saving metis";
     FILE *metis_file = fopen(path.c_str(), "w");
     fprintf(metis_file, "%u %u\n", total_v, total_e);
     for (uint32_t i = 0; i < total_v; i++) {
         if (i % 1000000 == 0) {
-            LOG(INFO) << "save " << i << " vertex";
+            VLOG(1) << "save " << i << " vertex";
         }
         for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
             fprintf(metis_file, "%u ", in_source[j] + 1);
@@ -108,21 +111,21 @@ void save_metis_util(std::string path, uint32_t *in_offset, uint32_t *in_source,
         fprintf(metis_file, "\n");
     }
     fclose(metis_file);
-    LOG(INFO) << "end saving metis";
+    VLOG(1) << "end saving metis";
 }
 
 template <class T>
 void read_csr_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
     T *in_weight, T *out_weight, bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e) {
-    LOG(INFO) << "start reading csr";
+    VLOG(1) << "start reading csr";
     FILE *csr_file = fopen(path.c_str(), "rb");
     size_t size;
-    size = fread(in_offset, 4, in_vertex_cnt + 1, csr_file);
-    CHECK(size == in_vertex_cnt + 1) << "fread failed";
+    size = fread(in_offset, 4, out_vertex_cnt + 1, csr_file);
+    CHECK(size == out_vertex_cnt + 1) << "fread failed";
     size = fread(in_source, 4, total_e, csr_file);
     CHECK(size == total_e) << "fread failed";
-    size = fread(out_offset, 4, out_vertex_cnt + 1, csr_file);
-    CHECK(size == out_vertex_cnt + 1) << "fread failed";
+    size = fread(out_offset, 4, in_vertex_cnt + 1, csr_file);
+    CHECK(size == in_vertex_cnt + 1) << "fread failed";
     size = fread(out_dest, 4, total_e, csr_file);
     CHECK(size == total_e) << "fread failed";
     if (weighted) {
@@ -132,38 +135,38 @@ void read_csr_util(std::string path, uint32_t *in_offset, uint32_t *in_source, u
         CHECK(size == total_e) << "fread failed";
     }
     fclose(csr_file);
-    LOG(INFO) << "end reading csr";
+    VLOG(1) << "end reading csr";
 }
 
 template <class T>
 void save_csr_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
     T *in_weight, T *out_weight, bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e) {
-    LOG(INFO) << "start saving csr";
+    VLOG(1) << "start saving csr";
     FILE *csr_file = fopen(path.c_str(), "wb");
     size_t size;
-    size = fwrite(in_offset, 4, in_vertex_cnt + 1, csr_file);
-    CHECK(size == in_vertex_cnt + 1) << "fwrite failed";
+    size = fwrite(in_offset, 4, out_vertex_cnt + 1, csr_file);
+    CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
     size = fwrite(in_source, 4, total_e, csr_file);
-    CHECK(size == total_e) << "fwrite failed";
-    size = fwrite(out_offset, 4, out_vertex_cnt + 1, csr_file);
-    CHECK(size == out_vertex_cnt + 1) << "fwrite failed";
+    CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
+    size = fwrite(out_offset, 4, in_vertex_cnt + 1, csr_file);
+    CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
     size = fwrite(out_dest, 4, total_e, csr_file);
-    CHECK(size == total_e) << "fwrite failed";
+    CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
     if (weighted) {
         size = fwrite(in_weight, sizeof(T), total_e, csr_file);
-        CHECK(size == total_e) << "fwrite failed";
+        CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
         size = fwrite(out_weight, sizeof(T), total_e, csr_file);
-        CHECK(size == total_e) << "fwrite failed";
+        CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
     }
     fclose(csr_file);
-    LOG(INFO) << "end saving csr";
+    VLOG(1) << "end saving csr";
 }
 
 template<class T>
 void save_result_util(std::ofstream &file, uint32_t start, uint32_t end, T *vec) {
     for (uint32_t v = start; v < end; v++) {
         T val = vec[v - start];
-        file << v << ": " << val << std::endl;
+        file << v << " " << val << std::endl;
     }
 }
 

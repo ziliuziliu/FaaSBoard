@@ -4,6 +4,7 @@
 #include "compute/graph.h"
 #include "compute/graph_set.h"
 #include "communication/caas.h"
+#include "util/timer.h"
 #include "util/bitmap.h"
 #include "util/types.h"
 #include "util/atomic.h"
@@ -12,10 +13,16 @@
 graph_set<uint32_t, empty> *graphs = nullptr;
 
 void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
+    timer::start();
+    timer::tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(graph_dir, CAAS_UP, 0xffffffff);
     }
-    graphs -> connect(request_id); 
+    timer::from_tick();
+    timer::tick("connect");
+    graphs -> connect(request_id);
+    timer::from_tick();
+    timer::tick("begin"); 
     graphs -> begin(
         0,
         [root](comm_object<uint32_t> *in_seg, uint32_t v){
@@ -28,29 +35,42 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
             return 0;
         }
     });
+    timer::from_tick();
     for (int round = 1; ; round++) {
+        std::string info_prefix = "round " + std::to_string(round) + " ";
+        timer::tick(info_prefix + "vote");
         uint32_t activated = graphs -> vote(); 
+        timer::from_tick();
         if (activated == 0) {
             break;
         }
+        timer::tick(info_prefix + "in");
         graphs -> in(round);
+        timer::from_tick();
+        timer::tick(info_prefix + "exec_each");
         graphs -> exec_each(
             round, -1, 
             [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
-                uint32_t *addr = out_seg -> vec + (v - out_seg -> start_index);
-                if (*addr == 0xffffffff && cas<uint32_t>(addr, 0xffffffff, u)) {
+                uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                if (*out_addr == 0xffffffff && cas<uint32_t>(out_addr, 0xffffffff, *in_addr + 1)) {
                     out_seg -> bm -> add(v - out_seg -> start_index);
                 }
             },
             [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
-                uint32_t *addr = out_seg -> vec + (v - out_seg -> start_index);
-                if (*addr == 0xffffffff) {
-                    *addr = u;
+                uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                if (*out_addr == 0xffffffff) {
+                    *out_addr = *in_addr + 1;
                     out_seg -> bm -> add(v - out_seg -> start_index);
                 }
             }
         );
+        timer::from_tick();
+        timer::tick(info_prefix + "out");
         graphs -> out(round);
+        timer::from_tick();
+        timer::tick(info_prefix + "exec_diagonal");
         graphs -> exec_diagonal(
             round,
             [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
@@ -62,9 +82,15 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
                 }
             }
         );
+        timer::from_tick();
     }
+    timer::tick("disconnect");
     graphs -> disconnect();
+    timer::from_tick();
+    timer::from_start("overall");
+    timer::tick("save_result");
     graphs -> save_result(graph_dir);
+    timer::from_tick();
 }
 
 #endif

@@ -218,7 +218,7 @@ public:
         uint32_t left = 1, right = meta.total_e;
         std::vector<uint32_t> result_cuts(cut + 1);
         while ((double)(right - left) / right >= 0.01) {
-            LOG(INFO) << "left: " << left << ", right: " << right;
+            VLOG(1) << "left: " << left << ", right: " << right;
             std::vector<uint32_t> check_list = generate_workload_limit_check_list(left, right);
             #pragma omp parallel for
             for (int t = 0; t < (int)check_list.size(); t++) {
@@ -340,6 +340,9 @@ public:
             }
             subgraph -> end_add_edge(OUTGOING);
         }
+        for (int i = 0; i < (int)subgraphs.size(); i++) {
+            subgraphs[i] -> check();
+        }
         std::vector<graph_set<ewT> *> graphsets(subgraphs.size(), nullptr);
         #pragma omp parallel for
         for (int i = 0; i < (int)subgraphs.size(); i++) {
@@ -353,12 +356,12 @@ public:
     }
 
     void print() {
-        LOG(INFO) << "Total V: " << meta.total_v;
-        LOG(INFO) << "Total E: " << meta.total_e;
-        LOG(INFO) << "In Offset: " << log_array<uint32_t>(in_offset, meta.total_v + 1).str();
-        LOG(INFO) << "In Source: " << log_array<uint32_t>(in_source, meta.total_e).str();
-        LOG(INFO) << "Out Offset: " << log_array<uint32_t>(out_offset, meta.total_v + 1).str();
-        LOG(INFO) << "Out Dest: " << log_array<uint32_t>(out_dest, meta.total_e).str();
+        VLOG(1) << "Total V: " << meta.total_v;
+        VLOG(1) << "Total E: " << meta.total_e;
+        VLOG(2) << "In Offset: " << log_array<uint32_t>(in_offset, meta.total_v + 1).str();
+        VLOG(2) << "In Source: " << log_array<uint32_t>(in_source, meta.total_e).str();
+        VLOG(2) << "Out Offset: " << log_array<uint32_t>(out_offset, meta.total_v + 1).str();
+        VLOG(2) << "Out Dest: " << log_array<uint32_t>(out_dest, meta.total_e).str();
     }
 
 };

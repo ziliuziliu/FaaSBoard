@@ -15,7 +15,7 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16;
 
-    LOG(INFO) << "row cut";
+    VLOG(1) << "row cut";
     result = g.row_partition(total_block);
     graphsets = g.partition(result);
     graph_set<empty>::simulation(graphsets);

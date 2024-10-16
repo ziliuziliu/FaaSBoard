@@ -3,14 +3,13 @@
 
 #include "graph.h"
 #include "util/json.h"
+#include "util/flags.h"
 
 #include <fstream>
 #include <vector>
 #include <omp.h>
 
 using json = nlohmann::json;
-
-int cores = omp_get_max_threads();
 
 template<class vwT, class ewT>
 class graph_set {
@@ -49,7 +48,7 @@ public:
         omp_set_num_threads(graphs.size());
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " connect to proxy";
+            VLOG(1) << "graph " << i << " connect to proxy";
             graphs[i] -> connect(request_id);
         }
     }
@@ -57,14 +56,14 @@ public:
     void disconnect() {
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " disconnect to proxy";
+            VLOG(1) << "graph " << i << " disconnect to proxy";
         }
     }
 
     void begin(int round, auto vertex_initialize_func) {
-        omp_set_num_threads(cores);
+        omp_set_num_threads(FLAGS_cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " vertex initialize";
+            VLOG(1) << "graph " << i << " vertex initialize";
             graphs[i] -> begin(round, i, vertex_initialize_func);
         }
     }
@@ -73,7 +72,7 @@ public:
         omp_set_num_threads(graphs.size());
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " in broadcast";
+            VLOG(1) << "graph " << i << " in broadcast";
             graphs[i] -> in(round, i);
         };
     }
@@ -82,23 +81,23 @@ public:
         omp_set_num_threads(graphs.size());
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " out reduce";
+            VLOG(1) << "graph " << i << " out reduce";
             graphs[i] -> out(round, i);
         }
     }
 
     void exec_each(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func) {
-        omp_set_num_threads(cores);
+        omp_set_num_threads(FLAGS_cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " exec block";
+            VLOG(1) << "graph " << i << " exec block";
             graphs[i] -> exec_each(round, i, vertex_initial_value, sparse_func, dense_func);
         }
     }
 
     void exec_diagonal(int round, auto reduce_func) {
-        omp_set_num_threads(cores);
+        omp_set_num_threads(FLAGS_cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " exec diagonal";
+            VLOG(1) << "graph " << i << " exec diagonal";
             graphs[i] -> exec_diagonal(round, i, reduce_func);
         }
     }
@@ -108,7 +107,7 @@ public:
         omp_set_num_threads(graphs.size());
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " vote";
+            VLOG(1) << "graph " << i << " vote";
             activated = graphs[i] -> vote();
         }
         return activated;
@@ -116,7 +115,7 @@ public:
 
     void save_result(std::string graph_dir) {
         for (int i = 0; i < (int)graphs.size(); i++) {
-            LOG(INFO) << "graph " << i << " save result";
+            VLOG(1) << "graph " << i << " save result";
             graphs[i] -> save_result(graph_dir + "/result" + std::to_string(i) + ".txt");
         }
     }

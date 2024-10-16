@@ -15,12 +15,12 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16, cut;
 
-    LOG(INFO) << "naive cut + cyclic layout";
+    VLOG(1) << "naive cut + cyclic layout";
     cut = total_block;
     result = g.naive_checkerboard_partition(cut);
-    LOG(INFO) << "begin partitioning";
+    VLOG(1) << "begin partitioning";
     graphsets = g.partition(result);
-    LOG(INFO) << "cycle placing";
+    VLOG(1) << "cycle placing";
     graphsets = graph_set<empty>::cycle(graphsets, total_block);
     graph_set<empty>::simulation(graphsets);
 

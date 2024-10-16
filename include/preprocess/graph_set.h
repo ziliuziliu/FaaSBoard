@@ -206,7 +206,7 @@ public:
     }
 
     void print(bool detail) {
-        LOG(INFO) << "GraphSet: ";
+        VLOG(1) << "GraphSet: ";
         for (auto graph: graphs)
             graph -> print(detail);
     }
@@ -229,7 +229,7 @@ public:
         for (auto cut : cutset) {
             cuts.push_back(cut);
         }
-        LOG(INFO) << "All cuts:" << log_array<uint32_t>(cuts.data(), cuts.size()).str();
+        VLOG(1) << "All cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
         fs::path root_dir = path_prefix;
         if (fs::exists(root_dir)) {
             fs::remove_all(root_dir);

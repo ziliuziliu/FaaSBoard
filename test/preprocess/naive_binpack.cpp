@@ -17,12 +17,12 @@ int main(int argc, char *argv[]) {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16, cut;
 
-    LOG(INFO) << "naive cut + binpack";
+    VLOG(1) << "naive cut + binpack";
     cut = sqrt((double)total_block) + 1;
     result = g.naive_checkerboard_partition(cut);
-    LOG(INFO) << "begin partitioning";
+    VLOG(1) << "begin partitioning";
     graphsets = g.partition(result);
-    LOG(INFO) << "end partitioning";
+    VLOG(1) << "end partitioning";
     for (;;) {
         try {
             double balance_ratio;

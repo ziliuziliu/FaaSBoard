@@ -126,8 +126,17 @@ public:
         return std::vector<uint32_t>{from_source, to_source, from_dest, to_dest};
     }
 
+    void check() {
+        for (uint32_t i = 0; i < to_dest - from_dest; i++) {
+            CHECK(in_offset[i] <= in_offset[i + 1]) << "in_offset[" << i << "] > in_offset[" << i + 1 << "]";
+        }
+        for (uint32_t i = 0; i < to_source - from_source; i++) {
+            CHECK(out_offset[i] <= out_offset[i + 1]) << "out_offset[" << i << "] > out_offset[" << i + 1 << "]";
+        }
+    }
+
     void print(bool detail) {
-        LOG(INFO) << "ID: " << id << ", Block: { " 
+        VLOG(1) << "ID: " << id << ", Block: { " 
                             << from_source << ", " 
                             << to_source << ", " 
                             << from_dest << ", " 
@@ -136,10 +145,10 @@ public:
         if (!detail) {
             return;
         }
-        LOG(INFO) << "In Offset: " << log_array<uint32_t>(in_offset, to_dest - from_dest + 1).str();
-        LOG(INFO) << "In Source: " << log_array<uint32_t>(in_source, edges).str();
-        LOG(INFO) << "Out Offset: " << log_array<uint32_t>(out_offset, to_source - from_source + 1).str();
-        LOG(INFO) << "Out Dest: " << log_array<uint32_t>(out_dest, edges).str();
+        VLOG(2) << "In Offset: " << log_array<uint32_t>(in_offset, to_dest - from_dest + 1).str();
+        VLOG(2) << "In Source: " << log_array<uint32_t>(in_source, edges).str();
+        VLOG(2) << "Out Offset: " << log_array<uint32_t>(out_offset, to_source - from_source + 1).str();
+        VLOG(2) << "Out Dest: " << log_array<uint32_t>(out_dest, edges).str();
     }
 
 };

@@ -51,9 +51,9 @@ struct partition_result {
     }
 
     void print() {
-        LOG(INFO) << "Total Blocks: " << blocks.size();
+        VLOG(1) << "Total Blocks: " << blocks.size();
         for (auto block: blocks) {
-            LOG(INFO) << "Block: { " 
+            VLOG(1) << "Block: { " 
                       << block.from_source << ", " 
                       << block.to_source << ", " 
                       << block.from_dest << ", " 

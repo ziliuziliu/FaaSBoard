@@ -15,7 +15,7 @@ int main() {
     std::vector<graph_set<empty> *> graphsets;
     int total_block = 16;
 
-    LOG(INFO) << "mondriaan_row_column cut";
+    VLOG(1) << "mondriaan_row_column cut";
     result = g.mondriaan_partition_row_column(total_block);
     graphsets = g.partition(result);
     graph_set<empty>::simulation(graphsets);

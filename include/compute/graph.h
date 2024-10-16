@@ -55,7 +55,7 @@ public:
             in_weight = new ewT[edges]();
             out_weight = new ewT[edges]();
         }
-        LOG(INFO) << "graph " << index << " [ " 
+        VLOG(1) << "graph " << index << " [ " 
             << from_source << ", " << to_source - 1 << " ] -> [ "
             << from_dest << ", " << to_dest - 1 << " ]";
     }
@@ -175,7 +175,7 @@ public:
             for (auto in_seg : in_segments) {
                 uint32_t start_source = in_seg -> start_index;
                 uint32_t end_source = in_seg -> start_index + in_seg -> vec_len;
-                #pragma omp parallel for
+                #pragma omp parallel for schedule(dynamic, 1000)
                 for (uint32_t v = start_source; v < end_source; v++) {
                     if (in_seg -> bm -> exist(v - start_source)) {
                         for (uint32_t off = out_offset[v - from_source]; off < out_offset[v + 1 - from_source]; off++) {
@@ -191,7 +191,7 @@ public:
             for (auto out_seg : out_segments) {
                 uint32_t start_dest = out_seg -> start_index;
                 uint32_t end_dest = out_seg -> start_index + out_seg -> vec_len;
-                #pragma omp parallel for
+                #pragma omp parallel for schedule(dynamic, 1000)
                 for (uint32_t v = start_dest; v < end_dest; v++) {
                     for (uint32_t off = in_offset[v - from_dest]; off < in_offset[v + 1 - from_dest]; off++) {
                         uint32_t source = in_source[off];
@@ -221,7 +221,7 @@ public:
                         in_seg -> bm -> clear();
                         uint32_t start = in_seg -> start_index;
                         uint32_t end = in_seg -> start_index + in_seg -> vec_len;
-                        #pragma omp parallel for
+                        #pragma omp parallel for schedule(dynamic, 1000)
                         for (uint32_t v = start; v < end; v++) {
                             if (out_seg -> bm -> exist(v - start)) {
                                 reduce_func(in_seg, out_seg, v);
