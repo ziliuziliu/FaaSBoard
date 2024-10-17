@@ -206,7 +206,7 @@ public:
         }
         uint32_t activated = 0;
         for (auto out_seg : out_segments) {
-            activated += out_seg -> bm -> size;
+            activated += out_seg -> bm -> get_size();
             out_seg -> print(round, index);
         }
         vote_object -> vec[0] = activated;

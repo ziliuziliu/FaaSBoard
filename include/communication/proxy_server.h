@@ -43,7 +43,7 @@ public:
         this -> fds = std::vector<int>();
         this -> flag = flag;
         this -> cnt = 0;
-        this -> bitmap_len = has_bitmap ? (vec_len >> 5) + 1 : 0;
+        this -> bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         this -> vec_len = vec_len;
         this -> data = new uint32_t[5 + bitmap_len + vec_len];
         this -> bm = has_bitmap ? new bitmap(vec_len, data + 5) : nullptr;
@@ -67,7 +67,7 @@ public:
     }
 
     bool adaptive_segment() {
-        return bm -> size <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
+        return bm -> get_size() <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
     }
 
     void initialize(uint32_t *header) {
@@ -80,7 +80,7 @@ public:
         if (segment_type == CAAS_DENSE) {
             return {(char *)data, (5 + bitmap_len + vec_len) << 2};
         } else {
-            uint32_t segment_len = 5 + bitmap_len + bm -> size;
+            uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
             uint32_t *segment = new uint32_t[segment_len];
             uint32_t pos = 5 + bitmap_len;
             memcpy(segment, data, 20 + (bitmap_len << 2));

@@ -116,7 +116,7 @@ public:
         root(root), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
         base_vertex_value(base_vertex_value) {
         flag = caas_build_flag(root, members, data_type, comm_op, reduce_op);
-        bitmap_len = has_bitmap ? (vec_len >> 5) + 1 : 0;
+        bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         data = new uint32_t[5 + bitmap_len + vec_len]();
         data[1] = object_id;
         data[2] = bitmap_len;
@@ -279,7 +279,7 @@ comm_object<T> *caas_make_comm_object(
 
 template <class T>
 bool caas_adaptive_segment(comm_object<T> *object) {
-    return object -> bm -> size <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
+    return object -> bm -> get_size() <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
 }
 
 template <class T>
@@ -288,7 +288,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
     if (segment_type == CAAS_DENSE) {
         return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
     } else {
-        uint32_t segment_len = 5 + object -> bitmap_len + object -> bm -> size;
+        uint32_t segment_len = 5 + object -> bitmap_len + object -> bm -> get_size();
         uint32_t *segment = new uint32_t[segment_len];
         uint32_t pos = 5 + object -> bitmap_len;
         memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
@@ -308,10 +308,8 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     bool segment_type = caas_segment_get_segment_type(segment[4]);
     if (segment_type == CAAS_DENSE) {
         memcpy(object -> data, data, len);
-        object -> bm -> refresh();
     } else {
         memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
-        object -> bm -> refresh();
         uint32_t pos = 5 + object -> bitmap_len;
         for (uint32_t i = 0; i < object -> vec_len; i++) {
             if (object -> bm -> exist(i)) {

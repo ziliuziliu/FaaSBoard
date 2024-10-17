@@ -65,7 +65,7 @@ public:
 
     static uint32_t gain(graph_set<ewT> *s1, graph_set<ewT> *s2) {
         bitmap *ret1 = s1 -> recv_map -> AND(s2 -> recv_map), *ret2 = s1 -> send_map -> AND(s2 -> send_map);
-        uint32_t size = ret1 -> size + ret2 -> size;
+        uint32_t size = ret1 -> get_size() + ret2 -> get_size();
         delete ret1;
         delete ret2;
         return size;
@@ -188,8 +188,8 @@ public:
             ret1 = graphset -> manage_map -> NOT();
             ret2 = graphset -> recv_map -> AND(ret1);
             ret3 = graphset -> send_map -> AND(ret1);
-            total_comm += ret2 -> size + ret3 -> size;
-            comms.push_back(ret2 -> size + ret3 -> size);
+            total_comm += ret2 -> get_size() + ret3 -> get_size();
+            comms.push_back(ret2 -> get_size() + ret3 -> get_size());
             delete ret1;
             delete ret2;
             delete ret3;
