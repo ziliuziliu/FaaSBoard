@@ -6,7 +6,7 @@
 #include "util/log.h"
 #include "util/flags.h"
 #include "util/bitmap.h"
-#include "util/readerwritercircularbuffer.h"
+#include "util/spsc/readerwritercircularbuffer.h"
 #include "util/types.h"
 #include "util/timer.h"
 

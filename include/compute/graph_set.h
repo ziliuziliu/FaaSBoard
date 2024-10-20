@@ -4,10 +4,12 @@
 #include "graph.h"
 #include "util/json.h"
 #include "util/flags.h"
+#include "util/mpmc/blockingconcurrentqueue.h"
 
 #include <fstream>
 #include <vector>
 #include <omp.h>
+#include <atomic>
 
 using json = nlohmann::json;
 
@@ -100,6 +102,49 @@ public:
             VLOG(1) << "graph " << i << " exec diagonal";
             graphs[i] -> exec_diagonal(round, i, reduce_func);
         }
+    }
+
+    void combine_run(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func, auto reduce_func) {
+        int graph_cnt = graphs.size();
+        omp_set_num_threads(FLAGS_cores);
+        moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt), exec_diagonal_queue(graph_cnt);
+        std::atomic<bool> exec_each_finish(false), exec_diagonal_finish(false);
+        std::thread exec_each_thread([&](){
+            for (int i = 0; i < graph_cnt; i++) {
+                int index;
+                exec_each_queue.wait_dequeue(index);
+                VLOG(1) << "graph " << index << " exec block";
+                graphs[index] -> exec_each(round, index, vertex_initial_value, sparse_func, dense_func);
+            }
+            exec_each_finish.store(true);
+            exec_each_finish.notify_one();
+        });
+        std::thread exec_diagonal_thread([&](){
+            for (int i = 0; i < graph_cnt; i++) {
+                int index;
+                exec_diagonal_queue.wait_dequeue(index);
+                VLOG(1) << "graph " << index << " exec diagonal";
+                graphs[index] -> exec_diagonal(round, index, reduce_func);
+            }
+            exec_diagonal_finish.store(true);
+            exec_diagonal_finish.notify_one();
+        });
+        #pragma omp parallel for
+        for (int i = 0; i < graph_cnt; i++) {
+            VLOG(1) << "graph " << i << " in broadcast";
+            graphs[i] -> in(round, i);
+            exec_each_queue.enqueue(i);
+        }
+        exec_each_finish.wait(false);
+        #pragma omp parallel for
+        for (int i = 0; i < graph_cnt; i++) {
+            VLOG(1) << "graph " << i << " out reduce";
+            graphs[i] -> out(round, i);
+            exec_diagonal_queue.enqueue(i);
+        }
+        exec_diagonal_finish.wait(false);
+        exec_each_thread.join();
+        exec_diagonal_thread.join();
     }
 
     uint32_t vote() {

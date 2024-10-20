@@ -1,7 +1,6 @@
 1. bitmap.h : operator support bitmaps with different length
 2. after preprocessing, build lambda functions, and keep in mind the resource configs!
 6. bitmap vertex scanning: don't call the exist every time, just grab a uint32_t value and gradually parse it
-7. in-compute-out interleaving?
 8. compute: what is the correct strategy of concurrent processing? parallel vertices or parallel edges?
 10. recheck vertex value type system
 11. dense vector zero copy

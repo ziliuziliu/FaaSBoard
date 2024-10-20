@@ -12,7 +12,7 @@
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
-void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
+void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t root) {
     timer t;
     t.start();
     t.tick("read graph");
@@ -37,53 +37,93 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
         }
     });
     t.from_tick();
-    for (int round = 1; ; round++) {
-        std::string info_prefix = "round " + std::to_string(round) + " ";
-        t.tick(info_prefix + "vote");
-        uint32_t activated = graphs -> vote(); 
-        t.from_tick();
-        if (activated == 0) {
-            break;
+    if (!no_pipeline) {
+        for (int round = 1; ; round++) {
+            std::string info_prefix = "round " + std::to_string(round) + " ";
+            t.tick(info_prefix + "vote");
+            uint32_t activated = graphs -> vote(); 
+            t.from_tick();
+            if (activated == 0) {
+                break;
+            }
+            t.tick(info_prefix + "combine_run");
+            graphs -> combine_run(
+                round, -1, 
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
+                    uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*out_addr == 0xffffffff && cas<uint32_t>(out_addr, 0xffffffff, *in_addr + 1)) {
+                        out_seg -> bm -> add(v - out_seg -> start_index);
+                    }
+                },
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
+                    uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*out_addr == 0xffffffff) {
+                        *out_addr = *in_addr + 1;
+                        out_seg -> bm -> add(v - out_seg -> start_index);
+                    }
+                },
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
+                    uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*in_addr == 0xffffffff) {
+                        *in_addr = *out_addr;
+                        in_seg -> bm -> add(v - in_seg -> start_index);
+                    }
+                }
+            );
+            t.from_tick();
         }
-        t.tick(info_prefix + "in");
-        graphs -> in(round);
-        t.from_tick();
-        t.tick(info_prefix + "exec_each");
-        graphs -> exec_each(
-            round, -1, 
-            [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
-                uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
-                uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
-                if (*out_addr == 0xffffffff && cas<uint32_t>(out_addr, 0xffffffff, *in_addr + 1)) {
-                    out_seg -> bm -> add(v - out_seg -> start_index);
-                }
-            },
-            [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
-                uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
-                uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
-                if (*out_addr == 0xffffffff) {
-                    *out_addr = *in_addr + 1;
-                    out_seg -> bm -> add(v - out_seg -> start_index);
-                }
+    } else {
+        for (int round = 1; ; round++) {
+            std::string info_prefix = "round " + std::to_string(round) + " ";
+            t.tick(info_prefix + "vote");
+            uint32_t activated = graphs -> vote(); 
+            t.from_tick();
+            if (activated == 0) {
+                break;
             }
-        );
-        t.from_tick();
-        t.tick(info_prefix + "out");
-        graphs -> out(round);
-        t.from_tick();
-        t.tick(info_prefix + "exec_diagonal");
-        graphs -> exec_diagonal(
-            round,
-            [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
-                uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
-                uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
-                if (*in_addr == 0xffffffff) {
-                    *in_addr = *out_addr;
-                    in_seg -> bm -> add(v - in_seg -> start_index);
+            t.tick(info_prefix + "in");
+            graphs -> in(round);
+            t.from_tick();
+            t.tick(info_prefix + "exec_each");
+            graphs -> exec_each(
+                round, -1, 
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
+                    uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*out_addr == 0xffffffff && cas<uint32_t>(out_addr, 0xffffffff, *in_addr + 1)) {
+                        out_seg -> bm -> add(v - out_seg -> start_index);
+                    }
+                },
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
+                    uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*out_addr == 0xffffffff) {
+                        *out_addr = *in_addr + 1;
+                        out_seg -> bm -> add(v - out_seg -> start_index);
+                    }
                 }
-            }
-        );
-        t.from_tick();
+            );
+            t.from_tick();
+            t.tick(info_prefix + "out");
+            graphs -> out(round);
+            t.from_tick();
+            t.tick(info_prefix + "exec_diagonal");
+            graphs -> exec_diagonal(
+                round,
+                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
+                    uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
+                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+                    if (*in_addr == 0xffffffff) {
+                        *in_addr = *out_addr;
+                        in_seg -> bm -> add(v - in_seg -> start_index);
+                    }
+                }
+            );
+            t.from_tick();
+        }
     }
     t.tick("disconnect");
     graphs -> disconnect();
