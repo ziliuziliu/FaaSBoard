@@ -8,6 +8,7 @@
 #include "util/bitmap.h"
 #include "util/readerwritercircularbuffer.h"
 #include "util/types.h"
+#include "util/timer.h"
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -142,6 +143,7 @@ void work(int thread_id) {
         uint32_t request_id = data[0], object_id = data[1], flag = data[4];
         segment_base *segment;
         segment = segment_table[request_id][object_id];
+        timer t;
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_MASKED_BROADCAST:
                 VLOG(1) << "masked broadcast from request " << request_id 
@@ -157,16 +159,24 @@ void work(int thread_id) {
                 VLOG(1) << "masked reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
+                t.tick("lock_wait");
                 segment -> m.lock();
+                t.from_tick();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
                 }
+                t.tick("reduce_adaptive_segment");
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
+                t.from_tick();
                 if (segment -> cnt == (int)segment -> fds.size()) {
                     bool segment_type = segment -> adaptive_segment();
+                    t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
+                    t.from_tick();
+                    t.tick("send_all");
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
+                    t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] new_data.first;
                     }
@@ -224,7 +234,7 @@ void run() {
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
     while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         int num_events = epoll_wait(epoll_fd, events, MAX_CONNECTION, -1);
         for (int i = 0; i < num_events; i++) {
             if (events[i].data.fd == server_fd) {

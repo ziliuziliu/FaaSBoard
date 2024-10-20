@@ -1,7 +1,5 @@
 1. bitmap.h : operator support bitmaps with different length
-2. after preprocessing, build lambda functions, and keep in mind the configs!
-3. in preprocessing: 32 refine
-4. reduce - broadcast, don't go to the root functions. instead, slide through.
+2. after preprocessing, build lambda functions, and keep in mind the resource configs!
 6. bitmap vertex scanning: don't call the exist every time, just grab a uint32_t value and gradually parse it
 7. in-compute-out interleaving?
 8. compute: what is the correct strategy of concurrent processing? parallel vertices or parallel edges?
@@ -11,6 +9,7 @@
 13. socket operations no error handling
 14. each segment need a socket and a exclusive connection. is there chances to use only one socket?
 15. for an object where recv and send is on the same machine, save the send
-17. reduce_vec_masked_sparse parallelize
+17. reduce_vec_masked_sparse parallelize?
+18.
 
 Now version: vertex value is 32bit, only on raw machine

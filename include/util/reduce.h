@@ -120,6 +120,7 @@ void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type =
 
 template <class T = empty>
 void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
+    LOG(INFO) << "reduce_dense";
     if (data_type == 0xff) {
         if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
@@ -176,6 +177,7 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
 
 template <class T>
 void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
+    LOG(INFO) << "reduce_sparse";
     if (data_type == 0xff) {
         if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;

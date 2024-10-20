@@ -36,17 +36,20 @@ int main(int argc, char *argv[]) {
         try {
             double balance_ratio;
             std::string save;
-            std::cout << "balance ratio?" << std::endl;
+            VLOG(1) << "balance ratio?";
             std::cin >> balance_ratio;
             std::vector<graph_set<empty> *> new_graphsets = graph_set<empty>::binpack(graphsets, total_block, balance_ratio);
             for (auto graphset : new_graphsets) {
                 graphset -> print(false);
             }
             graph_set<empty>::simulation(new_graphsets);
-            std::cout << "save? (Y or N)" << std::endl;
+            VLOG(1) << "save? (Y or N)";
             std::cin >> save;
             if (save == "Y") {
-                graph_set<empty>::save(new_graphsets, FLAGS_graph_root_dir);
+                double total_resource;
+                VLOG(1) << "total resource (cores)?";
+                std::cin >> total_resource;
+                graph_set<empty>::save(new_graphsets, total_resource);
                 break;
             }
         } catch (const std::runtime_error &e) {

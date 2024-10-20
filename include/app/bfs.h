@@ -13,16 +13,17 @@
 graph_set<uint32_t, empty> *graphs = nullptr;
 
 void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
-    timer::start();
-    timer::tick("read graph");
+    timer t;
+    t.start();
+    t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(graph_dir, CAAS_UP, 0xffffffff);
     }
-    timer::from_tick();
-    timer::tick("connect");
+    t.from_tick();
+    t.tick("connect");
     graphs -> connect(request_id);
-    timer::from_tick();
-    timer::tick("begin"); 
+    t.from_tick();
+    t.tick("begin"); 
     graphs -> begin(
         0,
         [root](comm_object<uint32_t> *in_seg, uint32_t v){
@@ -35,19 +36,19 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
             return 0;
         }
     });
-    timer::from_tick();
+    t.from_tick();
     for (int round = 1; ; round++) {
         std::string info_prefix = "round " + std::to_string(round) + " ";
-        timer::tick(info_prefix + "vote");
+        t.tick(info_prefix + "vote");
         uint32_t activated = graphs -> vote(); 
-        timer::from_tick();
+        t.from_tick();
         if (activated == 0) {
             break;
         }
-        timer::tick(info_prefix + "in");
+        t.tick(info_prefix + "in");
         graphs -> in(round);
-        timer::from_tick();
-        timer::tick(info_prefix + "exec_each");
+        t.from_tick();
+        t.tick(info_prefix + "exec_each");
         graphs -> exec_each(
             round, -1, 
             [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
@@ -66,11 +67,11 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
                 }
             }
         );
-        timer::from_tick();
-        timer::tick(info_prefix + "out");
+        t.from_tick();
+        t.tick(info_prefix + "out");
         graphs -> out(round);
-        timer::from_tick();
-        timer::tick(info_prefix + "exec_diagonal");
+        t.from_tick();
+        t.tick(info_prefix + "exec_diagonal");
         graphs -> exec_diagonal(
             round,
             [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
@@ -82,15 +83,15 @@ void bfs(std::string graph_dir, uint32_t request_id, uint32_t root) {
                 }
             }
         );
-        timer::from_tick();
+        t.from_tick();
     }
-    timer::tick("disconnect");
+    t.tick("disconnect");
     graphs -> disconnect();
-    timer::from_tick();
-    timer::from_start("overall");
-    timer::tick("save_result");
+    t.from_tick();
+    t.from_start("overall");
+    t.tick("save_result");
     graphs -> save_result(graph_dir);
-    timer::from_tick();
+    t.from_tick();
 }
 
 #endif

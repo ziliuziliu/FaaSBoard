@@ -14,34 +14,35 @@ inline double get_time() {
 class timer {
 
 public:
-    static double start_time, tick_time;
-    static std::string tick_info;
+    double start_time, tick_time;
+    std::string tick_info;
     
-    static void start() {
+    timer() {
+        start_time = tick_time = 0.0;
+        tick_info = "";
+    }
+
+    void start() {
         start_time = get_time();
         VLOG(1) << "====== start ======";
     }
     
-    static void from_start(std::string info) {
+    void from_start(std::string info) {
         double interval = get_time() - start_time;
         VLOG(1) << "====== from start " << info << " " << interval << "s ======";
     }
 
-    static void tick(std::string info) {
+    void tick(std::string info) {
         tick_time = get_time();
         tick_info = info;
         VLOG(1) << "====== tick " << info << " ======";
     }
     
-    static void from_tick() {
+    void from_tick() {
         double interval = get_time() - tick_time;
         VLOG(1) << "====== from tick " << tick_info << " " << interval << "s ======";
     }
 
 };
-
-double timer::start_time = 0.0;
-double timer::tick_time = 0.0;
-std::string timer::tick_info = "";
 
 #endif

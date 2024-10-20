@@ -3,6 +3,7 @@
 
 #include "graph.h"
 #include "util/json.h"
+#include "util/flags.h"
 
 #include <set>
 #include <algorithm>
@@ -211,7 +212,7 @@ public:
             graph -> print(detail);
     }
 
-    static void save(std::vector<graph_set<ewT> *> graphsets, std::string path_prefix) {
+    static void save(std::vector<graph_set<ewT> *> graphsets, double total_resource) {
         uint32_t total_graph = 0;
         for (auto graphset : graphsets) {
             total_graph += graphset -> graphs.size();
@@ -229,13 +230,15 @@ public:
         for (auto cut : cutset) {
             cuts.push_back(cut);
         }
-        VLOG(1) << "All cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
-        fs::path root_dir = path_prefix;
+        VLOG(1) << "all cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
+        fs::path root_dir = FLAGS_graph_root_dir;
         if (fs::exists(root_dir)) {
             fs::remove_all(root_dir);
         }
         fs::create_directory(root_dir);
         for (int i = 0; i < (int)graphsets.size(); i++) {
+            VLOG(1) << "graphset " << std::to_string(i) 
+                << " resource " << total_resource * graphsets[i] -> edges / FLAGS_edges;
             fs::create_directory(root_dir / std::to_string(i));
             graph_set<ewT> *graphset = graphsets[i];
             json graphs_meta;
