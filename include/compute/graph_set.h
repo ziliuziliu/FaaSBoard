@@ -23,6 +23,9 @@ public:
 
     graph_set(std::string graph_dir, uint8_t reduce_op, vwT base_vertex_value) {
         std::ifstream meta_file(graph_dir + "/graphs.meta");
+        if (!meta_file.is_open()) {
+            LOG(FATAL) << "could not open the file " << graph_dir + "/graphs.meta";
+        }
         std::stringstream meta_buffer;
         meta_buffer << meta_file.rdbuf();
         json metadata = json::parse(meta_buffer.str());
@@ -104,20 +107,34 @@ public:
         }
     }
 
-    void combine_run(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func, auto reduce_func) {
+    void pipeline_run(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func, auto reduce_func) {
+        std::string info_prefix = "round " + std::to_string(round) + " ";
         int graph_cnt = graphs.size();
-        omp_set_num_threads(FLAGS_cores);
         moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt), exec_diagonal_queue(graph_cnt);
-        std::atomic<bool> exec_each_finish(false), exec_diagonal_finish(false);
+        auto in_function = [&](int index){
+            graphs[index] -> in(round, index);
+            exec_each_queue.enqueue(index);
+        };
+        auto out_function = [&](int index){
+            graphs[index] -> out(round, index);
+            exec_diagonal_queue.enqueue(index);
+        };
+        std::vector<std::thread> in_threads;
+        for (int i = 0; i < graph_cnt; i++) {
+            in_threads.push_back(std::thread(in_function, i));
+        }
         std::thread exec_each_thread([&](){
+            std::vector<std::thread> out_threads;
             for (int i = 0; i < graph_cnt; i++) {
                 int index;
                 exec_each_queue.wait_dequeue(index);
                 VLOG(1) << "graph " << index << " exec block";
                 graphs[index] -> exec_each(round, index, vertex_initial_value, sparse_func, dense_func);
+                out_threads.push_back(std::thread(out_function, index));
             }
-            exec_each_finish.store(true);
-            exec_each_finish.notify_one();
+            for (int i = 0; i < (int)out_threads.size(); i++) {
+                out_threads[i].join();
+            }
         });
         std::thread exec_diagonal_thread([&](){
             for (int i = 0; i < graph_cnt; i++) {
@@ -126,23 +143,10 @@ public:
                 VLOG(1) << "graph " << index << " exec diagonal";
                 graphs[index] -> exec_diagonal(round, index, reduce_func);
             }
-            exec_diagonal_finish.store(true);
-            exec_diagonal_finish.notify_one();
         });
-        #pragma omp parallel for
         for (int i = 0; i < graph_cnt; i++) {
-            VLOG(1) << "graph " << i << " in broadcast";
-            graphs[i] -> in(round, i);
-            exec_each_queue.enqueue(i);
+            in_threads[i].join();
         }
-        exec_each_finish.wait(false);
-        #pragma omp parallel for
-        for (int i = 0; i < graph_cnt; i++) {
-            VLOG(1) << "graph " << i << " out reduce";
-            graphs[i] -> out(round, i);
-            exec_diagonal_queue.enqueue(i);
-        }
-        exec_diagonal_finish.wait(false);
         exec_each_thread.join();
         exec_diagonal_thread.join();
     }

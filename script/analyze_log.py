@@ -27,7 +27,7 @@ def analyze(log_file_name):
                 begin += float(extract(line))
             if line.find('from tick round') != -1 and line.find('vote') != -1:
                 vote += float(extract(line))
-            if line.find('from tick round') != -1 and line.find('in') != -1:
+            if line.find('from tick round') != -1 and line.find('in') != -1 and line.find('combine_run') == -1:
                 inin += float(extract(line))
             if line.find('from tick round') != -1 and line.find('exec_each') != -1:
                 exec_each += float(extract(line))

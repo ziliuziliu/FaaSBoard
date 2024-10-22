@@ -239,6 +239,9 @@ public:
 
     void save_result(std::string path) {
         std::ofstream file(path);
+        if (!file.is_open()) {
+            LOG(FATAL) << "could not open the file " << path;
+        }
         for (auto in_seg : in_segments)
             for (auto out_seg : out_segments) {
                 if (in_seg -> start_index == out_seg -> start_index

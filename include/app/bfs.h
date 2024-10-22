@@ -47,7 +47,7 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
                 break;
             }
             t.tick(info_prefix + "combine_run");
-            graphs -> combine_run(
+            graphs -> pipeline_run(
                 round, -1, 
                 [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t u, uint32_t v, empty w){
                     uint32_t *in_addr = in_seg -> vec + (u - in_seg -> start_index);
