@@ -271,6 +271,13 @@ public:
                         comm_meta["recv"].push_back(recv_meta);
                     }
                 }
+                if (comm_meta["recv"].size() == 0) {
+                    graph -> print(false);
+                    LOG(FATAL) << "no in segment";
+                } else if (comm_meta["recv"].size() >= 2) {
+                    graph -> print(false);
+                    LOG(FATAL) << "too many in segments";
+                }
                 comm_meta["send"] = std::vector<json>();
                 for (int j = 0; j < (int)cuts.size(); j++) {
                     if (cuts[j] >= graph -> from_dest && cuts[j] < graph -> to_dest) {
@@ -286,6 +293,13 @@ public:
                         }
                         comm_meta["send"].push_back(send_meta);
                     }
+                }
+                if (comm_meta["send"].size() == 0) {
+                    graph -> print(false);
+                    LOG(FATAL) << "no out segment";
+                } else if (comm_meta["send"].size() == 2) {
+                    graph -> print(false);
+                    LOG(FATAL) << "too many out segments";
                 }
                 comm_meta["vote"]["object_id"] = 0;
                 comm_meta["vote"]["members"] = total_graph;

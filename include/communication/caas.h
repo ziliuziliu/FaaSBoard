@@ -130,22 +130,6 @@ public:
         meta_server.sin_port = htons(meta_server_port);
     }
 
-    bool contains(uint32_t index) {
-        return index >= start_index && index < start_index + vec_len;
-    }
-
-    static comm_object<T> *search(uint32_t index, std::vector<comm_object<T> *> &segments) {
-        if (segments.size() == 1) {
-            return segments[0];
-        }
-        for (auto seg : segments) {
-            if (seg -> contains(index)) {
-                return seg;
-            }
-        }
-        return nullptr;
-    }
-
     virtual void caas_connect(uint32_t request_id) {}
 
     virtual void caas_disconnect() {}

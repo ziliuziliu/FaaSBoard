@@ -89,6 +89,7 @@ public:
 
     // require total_block to be square number
     partition_result mondriaan_partition_row_column(int total_block) {
+        LOG(FATAL) << "the partition must be regular, fix this!";
         int cut = sqrt(total_block);
         partition_result row_result = row_partition(cut);
         partition_result final_result;
@@ -124,6 +125,7 @@ public:
 
     // require total_block to be square number
     partition_result mondriaan_partition_column_row(int total_block) {
+        LOG(FATAL) << "the partition must be regular, fix this!";
         int cut = sqrt(total_block);
         partition_result column_result = column_partition(cut);
         partition_result final_result;

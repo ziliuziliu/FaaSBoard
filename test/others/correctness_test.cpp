@@ -5,6 +5,7 @@
 #include <cstring>
 #include <queue>
 #include <filesystem>
+#include <chrono>
 
 uint32_t *bfs(raw_graph<empty> *g, uint32_t total_v, uint32_t bfs_root) {
     uint32_t *dis = new uint32_t[total_v];
@@ -44,6 +45,13 @@ T *read_result(std::string graph_root_dir, uint32_t total_v) {
             if (!fs::exists(result_file_path)) {
                 break;
             }
+            auto last_write_time = fs::last_write_time(result_file_path);
+            auto last_write_time_system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+                last_write_time - decltype(last_write_time)::clock::now() + std::chrono::system_clock::now()
+            );
+            auto current_time = std::chrono::system_clock::now();
+            auto diff_time = std::chrono::duration_cast<std::chrono::minutes>(current_time - last_write_time_system).count();
+            CHECK(diff_time <= 30) << "result file is generated long time ago";
             std::ifstream result_file(result_file_path);
             std::string line;
             while (std::getline(result_file, line)) {
@@ -69,7 +77,6 @@ void check(uint32_t total_v, T *vec1, T *vec2) {
     for (uint32_t i = 0; i < total_v; i++) {
         CHECK(vec1[i] == vec2[i]) << "vertex " << i << " correct " << vec1[i] << " result " << vec2[i];
     }
-    VLOG(1) << "Correctness Check Passed";
 }
 
 int main(int argc, char *argv[]) {
@@ -82,6 +89,8 @@ int main(int argc, char *argv[]) {
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         uint32_t *dis2 = read_result<uint32_t>(FLAGS_graph_root_dir, FLAGS_vertices);
         check<uint32_t>(FLAGS_vertices, dis1, dis2);
-    }   
+    }
+    VLOG(1) << "Freshness Check (<=30min) Passed";   
+    VLOG(1) << "Correctness Check Passed";
     return 0;
 }
