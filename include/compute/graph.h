@@ -60,48 +60,20 @@ public:
             << from_dest << ", " << to_dest - 1 << " ]";
     }
 
+    bool check_diagonal() {
+        return in_segment -> start_index == out_segment -> start_index 
+            && in_segment -> vec_len == out_segment -> vec_len;
+    }
+
     void read_csr(std::string path) {
         read_csr_util(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
             weighted, to_source - from_source, to_dest - from_dest, edges);
     }
 
-    void set_segment_connection(json meta) {
-        uint8_t comm_type = meta["comm_type"];
-        std::string meta_server_addr = meta["meta_server_addr"];
-        int meta_server_port = meta["meta_server_port"];
-        json recv = meta["recv"];
-        CHECK(recv.size() == 1) << "have to be just 1 in segment";
-        for (int i = 0; i < (int)recv.size(); i++) {
-            json item = recv[i];
-            uint32_t start = item["start"], end = item["end"];
-            uint8_t data_type = caas_get_data_type<vwT>();
-            in_segment = caas_make_comm_object<vwT>(
-                comm_type, meta_server_addr, meta_server_port, 
-                item["object_id"], end - start, true, start, 
-                item["root"], item["members"], data_type, CAAS_MASKED_BROADCAST, reduce_op,
-                base_vertex_value
-            );
-        }
-        json send = meta["send"];
-        CHECK(send.size() == 1) << "have to be just 1 out segment";
-        for (int i = 0; i < (int)send.size(); i++) {
-            json item = send[i];
-            uint32_t start = item["start"], end = item["end"];
-            uint8_t data_type = caas_get_data_type<vwT>();
-            out_segment = caas_make_comm_object<vwT>(
-                comm_type, meta_server_addr, meta_server_port,
-                item["object_id"], end - start, true, start, 
-                item["root"], item["members"], data_type, CAAS_MASKED_REDUCE, reduce_op,
-                base_vertex_value
-            );
-        }
-        json vote_meta = meta["vote"];
-        vote_object = caas_make_comm_object<uint32_t>(
-            comm_type, meta_server_addr, meta_server_port,
-            vote_meta["object_id"], 1, false, 0, 
-            false, vote_meta["members"], CAAS_UINT32, CAAS_ALLREDUCE, CAAS_ADD,
-            0
-        );
+    void set_comm_object(comm_object<vwT> *in_segment, comm_object<vwT> *out_segment, comm_object<uint32_t> *vote_object) {
+        this -> in_segment = in_segment;
+        this -> out_segment = out_segment;
+        this -> vote_object = vote_object;
     }
 
     void connect(uint32_t request_id) {
@@ -116,18 +88,6 @@ public:
         vote_object -> caas_disconnect();
     }
 
-    void in(int round, int index) {
-        in_segment -> print(round, index);
-        in_segment -> caas_do();
-        in_segment -> print(round, index);
-    }
-
-    void out(int round, int index) {
-        out_segment -> print(round, index);
-        out_segment -> caas_do();
-        out_segment -> print(round, index);
-    }
-
     void begin(int round, int index, auto vertex_initialize_func) {
         uint32_t activated = 0;
         uint32_t start_source = in_segment -> start_index;
@@ -140,12 +100,8 @@ public:
     }
 
     void exec_each(int round, int index, vwT vertex_initial_value, auto sparse_func, auto dense_func) {
-        out_segment -> bm -> clear();
-        #pragma omp parallel for
-        for (uint32_t i = 0; i < out_segment -> vec_len; i++)
-            out_segment -> vec[i] = vertex_initial_value;
         uint32_t active_edges = 0;
-        in_segment -> print(round, index);
+        in_segment -> print(round);
         uint32_t start_source = in_segment -> start_index;
         uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
         #pragma omp parallel for reduction(+:active_edges)
@@ -156,6 +112,7 @@ public:
         }
         bool sparse = active_edges < edges / 20;
         if (sparse) {
+            VLOG(1) << "running in sparse mode";
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             #pragma omp parallel for schedule(dynamic, 1000)
@@ -169,6 +126,7 @@ public:
                 }
             }
         } else {
+            VLOG(1) << "running in dense mode";
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;
             #pragma omp parallel for schedule(dynamic, 1000)
@@ -184,13 +142,13 @@ public:
         }
         uint32_t activated = 0;
         activated += out_segment -> bm -> get_size();
-        out_segment -> print(round, index);
+        out_segment -> print(round);
         vote_object -> vec[0] = activated;
     }
 
     void exec_diagonal(int round, int index, auto reduce_func) {
-        if (in_segment -> root && out_segment -> root) {
-            out_segment -> print(round, index);
+        if (check_diagonal()) {
+            out_segment -> print(round);
             in_segment -> bm -> clear();
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
@@ -200,7 +158,7 @@ public:
                     reduce_func(in_segment, out_segment, v);
                 }
             }
-            in_segment -> print(round, index);
+            in_segment -> print(round);
         }
     }
 
@@ -214,7 +172,7 @@ public:
         if (!file.is_open()) {
             LOG(FATAL) << "could not open the file " << path;
         }
-        if (in_segment -> root && out_segment -> root) {
+        if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
             save_result_util<vwT>(file, start, end, in_segment -> vec);

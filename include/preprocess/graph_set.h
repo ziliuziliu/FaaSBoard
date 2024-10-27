@@ -236,6 +236,27 @@ public:
             fs::remove_all(root_dir);
         }
         fs::create_directory(root_dir);
+        int *instances = new int[cuts.size() * 2 - 1]();
+        instances[0] = total_graph;
+        for (int i = 0; i < (int)cuts.size() - 1; i++) {
+            for (int j = 0; j < (int)graphsets.size(); j++) {
+                bool contain_object_in = false, contain_object_out = false;
+                for (auto graph : graphsets[j] -> graphs) {
+                    if (cuts[i] >= graph -> from_source && cuts[i] < graph -> to_source) {
+                        contain_object_in = true;
+                    }
+                    if (cuts[i] >= graph -> from_dest && cuts[i] < graph -> to_dest) {
+                        contain_object_out = true;
+                    }
+                }
+                if (contain_object_in) {
+                    instances[i + 1]++;
+                }
+                if (contain_object_out) {
+                    instances[i + cuts.size()]++;
+                }
+            }
+        }
         for (int i = 0; i < (int)graphsets.size(); i++) {
             VLOG(1) << "graphset " << std::to_string(i) 
                 << " resource " << total_resource * graphsets[i] -> edges / FLAGS_edges;
@@ -256,12 +277,13 @@ public:
                 comm_meta["meta_server_addr"] = "172.31.12.143";
                 comm_meta["meta_server_port"] = 20000;
                 comm_meta["recv"] = std::vector<json>();
-                for (int j = 0; j < (int)cuts.size(); j++) {
+                for (int j = 0; j < (int)cuts.size() - 1; j++) {
                     if (cuts[j] >= graph -> from_source && cuts[j] < graph -> to_source) {
                         json recv_meta;
                         recv_meta["object_id"] = j + 1;
                         recv_meta["start"] = cuts[j];
                         recv_meta["end"]= cuts[j + 1];
+                        recv_meta["instances"] = instances[(int)recv_meta["object_id"]];
                         recv_meta["members"] = cuts.size() - 1;
                         if (cuts[j] >= graph -> from_dest && cuts[j] < graph -> to_dest) {
                             recv_meta["root"] = true;
@@ -279,12 +301,13 @@ public:
                     LOG(FATAL) << "too many in segments";
                 }
                 comm_meta["send"] = std::vector<json>();
-                for (int j = 0; j < (int)cuts.size(); j++) {
+                for (int j = 0; j < (int)cuts.size() - 1; j++) {
                     if (cuts[j] >= graph -> from_dest && cuts[j] < graph -> to_dest) {
                         json send_meta;
                         send_meta["object_id"] = j + cuts.size();
                         send_meta["start"] = cuts[j];
                         send_meta["end"] = cuts[j + 1];
+                        send_meta["instances"] = instances[(int)send_meta["object_id"]];
                         send_meta["members"] = cuts.size() - 1;
                         if (cuts[j] >= graph -> from_source && cuts[j] < graph -> to_source) {
                             send_meta["root"] = true;
@@ -302,6 +325,7 @@ public:
                     LOG(FATAL) << "too many out segments";
                 }
                 comm_meta["vote"]["object_id"] = 0;
+                comm_meta["vote"]["instances"] = instances[(int)comm_meta["vote"]["object_id"]];
                 comm_meta["vote"]["members"] = total_graph;
                 graph_meta["comm"] = comm_meta; 
                 graphs_meta["graphs"].push_back(graph_meta);

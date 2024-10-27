@@ -24,6 +24,8 @@
 
 #define MAX_CONNECTION 4096
 
+std::mutex reduce_adaptive_segment_m;
+
 class segment_base {
     
 public:
@@ -64,7 +66,7 @@ public:
     }
 
     bool all_connected() {
-        return caas_flag_get_members(flag) == fds.size() + (root_fd != -1);
+        return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
     }
 
     bool adaptive_segment() {
@@ -102,7 +104,9 @@ public:
         uint8_t data_type = caas_flag_get_data_type(flag);
         uint8_t reduce_op = caas_flag_get_reduce_op(flag);
         if (segment_type == CAAS_DENSE) {
+            reduce_adaptive_segment_m.lock();
             reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
+            reduce_adaptive_segment_m.unlock();
         } else {
             bitmap *segment_bm = new bitmap(vec_len, segment + 5);
             reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
@@ -159,24 +163,24 @@ void work(int thread_id) {
                 VLOG(1) << "masked reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
-                t.tick("lock_wait");
+                // t.tick("lock_wait");
                 segment -> m.lock();
-                t.from_tick();
+                // t.from_tick();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
                 }
-                t.tick("reduce_adaptive_segment");
+                // t.tick("reduce_adaptive_segment");
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
-                t.from_tick();
+                // t.from_tick();
                 if (segment -> cnt == (int)segment -> fds.size()) {
                     bool segment_type = segment -> adaptive_segment();
-                    t.tick("make_adaptive_segment");
+                    // t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
-                    t.from_tick();
-                    t.tick("send_all");
+                    // t.from_tick();
+                    // t.tick("send_all");
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    t.from_tick();
+                    // t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] new_data.first;
                     }

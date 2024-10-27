@@ -4,6 +4,7 @@
 #include "graph.h"
 #include "util/json.h"
 #include "util/flags.h"
+#include "util/timer.h"
 #include "util/mpmc/blockingconcurrentqueue.h"
 
 #include <fstream>
@@ -20,6 +21,8 @@ public:
 
     graph_meta meta;
     std::vector<graph<vwT, ewT> *> graphs;
+    std::unordered_map<uint32_t, comm_object<vwT> *> in_segments, out_segments;
+    std::mutex segment_table_m;
 
     graph_set(std::string graph_dir, uint8_t reduce_op, vwT base_vertex_value) {
         std::ifstream meta_file(graph_dir + "/graphs.meta");
@@ -41,12 +44,79 @@ public:
                 item["edges"], reduce_op, base_vertex_value
             );
             newgraph -> read_csr(graph_dir + "/graph" + std::to_string(i) + ".csr");
-            newgraph -> set_segment_connection(item["comm"]);
+            auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value);
+            comm_object<vwT> *in_segment = std::get<0>(objects);
+            comm_object<vwT> *out_segment = std::get<1>(objects);
+            comm_object<vwT> *vote_object = std::get<2>(objects);
+            newgraph -> set_comm_object(in_segment, out_segment, vote_object);
             #pragma omp critical 
             {
                 graphs[i] = newgraph;
+                in_segment -> related_graph_index.push_back(i);
+                out_segment -> related_graph_index.push_back(i);
             }
         }
+    }
+
+    std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(json meta, uint8_t reduce_op, vwT base_vertex_value) {
+        comm_object<vwT> *in_segment, *out_segment, *vote_object;
+        uint8_t comm_type = meta["comm_type"];
+        std::string meta_server_addr = meta["meta_server_addr"];
+        int meta_server_port = meta["meta_server_port"];
+        json recv = meta["recv"];
+        CHECK(recv.size() == 1) << "have to be just 1 in segment";
+        for (int i = 0; i < (int)recv.size(); i++) {
+            json item = recv[i];
+            uint32_t start = item["start"], end = item["end"];
+            uint8_t data_type = caas_get_data_type<vwT>();
+            uint32_t object_id = item["object_id"];
+            segment_table_m.lock();
+            if (!in_segments.count(object_id)) {
+                in_segments[object_id] = caas_make_comm_object<vwT>(
+                    comm_type, meta_server_addr, meta_server_port, 
+                    item["object_id"], end - start, true, start, 
+                    item["root"], item["instances"], item["members"], data_type, CAAS_MASKED_BROADCAST, reduce_op,
+                    base_vertex_value
+                );
+            }
+            in_segment = in_segments[object_id];
+            in_segment -> colocated_member++;
+            if (item["root"]) {
+                in_segment -> update_root();
+            }
+            segment_table_m.unlock();
+        }
+        json send = meta["send"];
+        CHECK(send.size() == 1) << "have to be just 1 out segment";
+        for (int i = 0; i < (int)send.size(); i++) {
+            json item = send[i];
+            uint32_t start = item["start"], end = item["end"];
+            uint8_t data_type = caas_get_data_type<vwT>();
+            uint32_t object_id = item["object_id"];
+            segment_table_m.lock();
+            if (!out_segments.count(object_id)) {
+                out_segments[object_id] = caas_make_comm_object<vwT>(
+                    comm_type, meta_server_addr, meta_server_port,
+                    item["object_id"], end - start, true, start, 
+                    item["root"], item["instances"], item["members"], data_type, CAAS_MASKED_REDUCE, reduce_op,
+                    base_vertex_value
+                );
+            }
+            out_segment = out_segments[object_id];
+            out_segment -> colocated_member++;
+            if (item["root"]) {
+                out_segment -> update_root();
+            }
+            segment_table_m.unlock();
+        }
+        json vote_meta = meta["vote"];
+        vote_object = caas_make_comm_object<uint32_t>(
+            comm_type, meta_server_addr, meta_server_port,
+            vote_meta["object_id"], 1, false, 0, 
+            false, vote_meta["instances"], vote_meta["members"], CAAS_UINT32, CAAS_ALLREDUCE, CAAS_ADD,
+            0
+        );
+        return std::make_tuple(in_segment, out_segment, vote_object);
     }
 
     void connect(uint32_t request_id) {
@@ -59,9 +129,11 @@ public:
     }
 
     void disconnect() {
+        omp_set_num_threads(graphs.size());
         #pragma omp parallel for
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " disconnect to proxy";
+            graphs[i] -> disconnect();
         }
     }
 
@@ -74,25 +146,49 @@ public:
     }
 
     void in(int round) {
-        omp_set_num_threads(graphs.size());
-        #pragma omp parallel for
-        for (int i = 0; i < (int)graphs.size(); i++) {
-            VLOG(1) << "graph " << i << " in broadcast";
-            graphs[i] -> in(round, i);
+        auto in_function = [&](comm_object<vwT> *in_segment){
+            in_segment -> print(round);
+            in_segment -> caas_do();
+            in_segment -> print(round);
         };
+        std::vector<std::thread> in_threads;
+        for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
+            in_threads.push_back(std::thread(in_function, it -> second));
+        }
+        for (int i = 0; i < (int)in_threads.size(); i++) {
+            in_threads[i].join();
+        }
     }
 
     void out(int round) {
-        omp_set_num_threads(graphs.size());
-        #pragma omp parallel for
-        for (int i = 0; i < (int)graphs.size(); i++) {
-            VLOG(1) << "graph " << i << " out reduce";
-            graphs[i] -> out(round, i);
+        auto out_function = [&](comm_object<vwT> *out_segment){
+            out_segment -> print(round);
+            out_segment -> caas_do();
+            out_segment -> print(round);
+        };
+        std::vector<std::thread> out_threads;
+        for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
+            out_threads.push_back(std::thread(out_function, it -> second));
+        }
+        for (int i = 0; i < (int)out_threads.size(); i++) {
+            out_threads[i].join();
+        }
+    }
+
+    void exec_each_initialize(vwT vertex_initial_value) {
+        for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
+            comm_object<vwT> *out_segment = it -> second;
+            out_segment -> bm -> clear();
+            out_segment -> finish = 0;
+            #pragma omp parallel for
+            for (uint32_t i = 0; i < out_segment -> vec_len; i++)
+                out_segment -> vec[i] = vertex_initial_value;
         }
     }
 
     void exec_each(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func) {
         omp_set_num_threads(FLAGS_cores);
+        exec_each_initialize(vertex_initial_value);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec block";
             graphs[i] -> exec_each(round, i, vertex_initial_value, sparse_func, dense_func);
@@ -108,32 +204,41 @@ public:
     }
 
     void pipeline_run(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func, auto reduce_func) {
+        omp_set_num_threads(FLAGS_cores);
+        exec_each_initialize(vertex_initial_value);
         std::string info_prefix = "round " + std::to_string(round) + " ";
         int graph_cnt = graphs.size();
         moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt), exec_diagonal_queue(graph_cnt);
-        auto in_function = [&](int index){
-            graphs[index] -> in(round, index);
-            exec_each_queue.enqueue(index);
+        auto in_function = [&](comm_object<vwT> *in_segment){
+            in_segment -> print(round);
+            in_segment -> caas_do();
+            in_segment -> print(round);
+            for (auto i : in_segment -> related_graph_index) {
+                exec_each_queue.enqueue(i);
+            }
         };
-        auto out_function = [&](int index){
-            graphs[index] -> out(round, index);
-            exec_diagonal_queue.enqueue(index);
+        auto out_function = [&](comm_object<vwT> *out_segment){
+            out_segment -> print(round);
+            out_segment -> caas_do();
+            out_segment -> print(round);
+            for (auto i : out_segment -> related_graph_index) {
+                exec_diagonal_queue.enqueue(i);
+            }
         };
-        std::vector<std::thread> in_threads;
-        for (int i = 0; i < graph_cnt; i++) {
-            in_threads.push_back(std::thread(in_function, i));
+        std::vector<std::thread> in_threads, out_threads;
+        for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
+            in_threads.push_back(std::thread(in_function, it -> second));
         }
         std::thread exec_each_thread([&](){
-            std::vector<std::thread> out_threads;
             for (int i = 0; i < graph_cnt; i++) {
                 int index;
                 exec_each_queue.wait_dequeue(index);
                 VLOG(1) << "graph " << index << " exec block";
                 graphs[index] -> exec_each(round, index, vertex_initial_value, sparse_func, dense_func);
-                out_threads.push_back(std::thread(out_function, index));
-            }
-            for (int i = 0; i < (int)out_threads.size(); i++) {
-                out_threads[i].join();
+                graphs[index] -> out_segment -> finish++;
+                if (graphs[index] -> out_segment -> finish == graphs[index] -> out_segment -> colocated_member) {
+                    out_threads.push_back(std::thread(out_function, graphs[index] -> out_segment));
+                }
             }
         });
         std::thread exec_diagonal_thread([&](){
@@ -144,10 +249,13 @@ public:
                 graphs[index] -> exec_diagonal(round, index, reduce_func);
             }
         });
-        for (int i = 0; i < graph_cnt; i++) {
+        for (int i = 0; i < (int)in_threads.size(); i++) {
             in_threads[i].join();
         }
         exec_each_thread.join();
+        for (int i = 0; i < (int)out_threads.size(); i++) {
+            out_threads[i].join();
+        }
         exec_diagonal_thread.join();
     }
 

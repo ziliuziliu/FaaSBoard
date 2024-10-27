@@ -9,6 +9,7 @@
 14. each segment need a socket and a exclusive connection. is there chances to use only one socket?
 15. for an object where recv and send is on the same machine, save the send
 17. reduce_vec_masked_sparse parallelize?
-18.
+18. in-exec_each, exec_each-out pipelining (msg blocks)
+19.
 
 Now version: vertex value is 32bit, only on raw machine

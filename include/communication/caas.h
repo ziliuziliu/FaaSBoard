@@ -23,9 +23,10 @@ uint8_t caas_get_data_type() {
     return CAAS_UINT32;
 }
 
-uint32_t caas_build_flag(bool root, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op) {
+uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op) {
     uint32_t flag = 0;
     flag |= (root << 31);
+    flag |= ((instances & 0xf) << 16);
     flag |= ((members & 0xf) << 12);
     flag |= ((data_type & 0xf) << 8);
     flag |= ((comm_op & 0xf) << 4);
@@ -35,6 +36,10 @@ uint32_t caas_build_flag(bool root, uint8_t members, uint8_t data_type, uint8_t 
 
 bool caas_flag_get_root(uint32_t flag) {
     return flag >> 31;
+}
+
+uint8_t caas_flag_get_instances(uint32_t flag) {
+    return (flag >> 16) & 0xf;
 }
 
 uint8_t caas_flag_get_members(uint32_t flag) {
@@ -92,7 +97,7 @@ public:
     uint32_t object_id;
     uint32_t bitmap_len;
     uint32_t vec_len;
-    // | root, 1 bit | segment_type, 1 bit | 14 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
+    // | root, 1 bit | segment_type, 1 bit | 10 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
     uint32_t flag;
 
     uint32_t *data;
@@ -102,21 +107,24 @@ public:
     T *vec;
 
     bool has_bitmap, root;
-    uint8_t members, data_type, comm_op, reduce_op;
+    uint8_t instances, members, data_type, comm_op, reduce_op;
 
     T base_vertex_value;
     sockaddr_in meta_server;
+
+    std::vector<int> related_graph_index;
+    uint8_t colocated_member, finish;
 
     comm_object() {}
     
     comm_object(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_index, 
-        bool root, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ) : object_id(object_id), vec_len(vec_len), start_index(start_index), has_bitmap(has_bitmap), 
-        root(root), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
+        root(root), instances(instances), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
         base_vertex_value(base_vertex_value) {
-        flag = caas_build_flag(root, members, data_type, comm_op, reduce_op);
+        flag = caas_build_flag(root, instances, members, data_type, comm_op, reduce_op);
         bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         data = new uint32_t[5 + bitmap_len + vec_len]();
         data[1] = object_id;
@@ -128,6 +136,8 @@ public:
         meta_server.sin_family = AF_INET;
         meta_server.sin_addr.s_addr = inet_addr(meta_server_addr.c_str());
         meta_server.sin_port = htons(meta_server_port);
+        colocated_member = finish = 0;
+        related_graph_index = std::vector<int>();
     }
 
     virtual void caas_connect(uint32_t request_id) {}
@@ -136,8 +146,14 @@ public:
 
     virtual void caas_do() {}
 
-    void print(int round, int index) {
-        VLOG(2) << "round " << round << " graph " << index << " "
+    void update_root() {
+        root = true;
+        flag = caas_build_flag(root, instances, members, data_type, comm_op, reduce_op);
+        data[4] = flag;
+    }
+
+    void print(int round) {
+        VLOG(2) << "round " << round << " object " << object_id << " "
             << "[ " << start_index << ", " << start_index + vec_len - 1 << " ]: " 
             << "bitmap " << bm -> print().str() << " "
             << "value " << log_array<T>(vec, vec_len).str();
@@ -152,59 +168,74 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
+    std::atomic<bool> connected;
 
     proxy() {}
 
     proxy(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-        bool root, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ): comm_object<T>(
             object_id, vec_len, has_bitmap, start_vertex, 
-            root, members, data_type, comm_op, reduce_op,
+            root, instances, members, data_type, comm_op, reduce_op,
             base_vertex_value, meta_server_addr, meta_server_port
     ) {}
 
     void caas_connect(uint32_t request_id) {
-        this -> request_id = request_id;
-        this -> data[0] = request_id;
-        int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
-        CHECK(status_code == 0) << "can't connect to meta server";
-        recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
-        close(meta_server_socket);
-        proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
-        CHECK(status_code == 0) << "can't connect to proxy server";
-        uint32_t connect_data[6] = {request_id, this -> object_id, this -> vec_len, 
-            *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
-        send(proxy_server_socket, connect_data, sizeof(uint32_t) * 6, 0);
+        bool expected = false;
+        if (connected.compare_exchange_strong(expected, true)) {
+            this -> request_id = request_id;
+            this -> data[0] = request_id;
+            int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+            int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
+            CHECK(status_code == 0) << "can't connect to meta server";
+            recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
+            close(meta_server_socket);
+            proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+            status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
+            CHECK(status_code == 0) << "can't connect to proxy server";
+            uint32_t connect_data[6] = {request_id, this -> object_id, this -> vec_len, 
+                *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
+            send(proxy_server_socket, connect_data, sizeof(uint32_t) * 6, 0);
+        }
     }
 
     void caas_disconnect() {
-        close(proxy_server_socket);
+        bool expected = true;
+        if (connected.compare_exchange_strong(expected, false)) {
+            close(proxy_server_socket);
+        }
     }
 
     void caas_do() {
+        if (this -> comm_op == CAAS_MASKED_BROADCAST || this -> comm_op == CAAS_MASKED_REDUCE) {
+            if (this -> colocated_member == this -> members) {
+                VLOG(1) << "object " << this -> object_id << " return from " << this -> comm_op;
+                return;
+            }
+        }
         timer t;
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
                     bool segment_type = caas_adaptive_segment<T>(this);
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
+                    VLOG(1) << "object " << this -> object_id << " sending masked broadcast";
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
+                    VLOG(1) << "object " << this -> object_id << " have sended masked broadcast";
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
-                    t.tick("recv_all");
+                    // t.tick("recv_all");
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    t.from_tick();
-                    t.tick("reduce_adaptive_segment");
+                    // t.from_tick();
+                    // t.tick("reduce_adaptive_segment");
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
-                    t.from_tick();
+                    // t.from_tick();
                     delete [] segment.first;
                     break;
                 }
@@ -215,19 +246,21 @@ public:
         } else {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
+                    VLOG(1) << "object " << this -> object_id << " wait on masked broadcast";
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
+                    VLOG(1) << "object " << this -> object_id << " has received masked broadcast";
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
                     bool segment_type = caas_adaptive_segment<T>(this);
-                    t.tick("make_adaptive_segment");
+                    // t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    t.from_tick();
-                    t.tick("send_all");
+                    // t.from_tick();
+                    // t.tick("send_all");
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    t.from_tick();
+                    // t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }
@@ -253,7 +286,7 @@ template <class T>
 comm_object<T> *caas_make_comm_object(
     uint8_t comm_type, std::string meta_server_addr, int meta_server_port,
     uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-    bool root, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+    bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
     T base_vertex_value
 ) {
     comm_object<T> *result = nullptr;
@@ -261,7 +294,7 @@ comm_object<T> *caas_make_comm_object(
         case CAAS_PROXY:
             result = new proxy<T>(
                 object_id, vec_len, has_bitmap, start_vertex, 
-                root, members, data_type, comm_op, reduce_op,
+                root, instances, members, data_type, comm_op, reduce_op,
                 base_vertex_value, meta_server_addr, meta_server_port
             );
             break;
