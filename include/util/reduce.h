@@ -177,7 +177,7 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
 
 template <class T>
 void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
-    LOG(INFO) << "reduce_sparse";
+    LOG(INFO) << "reduce_sparse, b_bm size " << b_bm -> get_size();
     if (data_type == 0xff) {
         if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
@@ -187,20 +187,23 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             data_type = CAAS_UINT32;
         }
     }
+    bitmap_iterator *it = new bitmap_iterator(b_bm, len);
     switch (data_type) {
         case CAAS_UINT32: {
             reduce_uint32_f f = get_reduce_func_uint32(reduce_op);
             uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
             uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                if (b_bm -> exist(i)) {
-                    uint32_t new_val = f(aa[i], bb[pos]);
-                    if (new_val != aa[i]) {
-                        a_bm -> add(i);
-                    }
-                    aa[i] = new_val;
-                    pos++;
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
                 }
+                uint32_t new_val = f(aa[index], bb[pos]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                pos++;
             }
             break;
         }
@@ -208,15 +211,17 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             reduce_int_f f = get_reduce_func_int(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
             uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                if (b_bm -> exist(i)) {
-                    int new_val = f(aa[i], bb[pos]);
-                    if (new_val != aa[i]) {
-                        a_bm -> add(i);
-                    }
-                    aa[i] = new_val;
-                    pos++;
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
                 }
+                int new_val = f(aa[index], bb[pos]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                pos++;
             }
             break;
         }
@@ -224,15 +229,17 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             reduce_float_f f = get_reduce_func_float(reduce_op);
             float *aa = (float *)a, *bb = (float *)b;
             uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                if (b_bm -> exist(i)) {
-                    float new_val = f(aa[i], bb[pos]);
-                    if (new_val != aa[i]) {
-                        a_bm -> add(i);
-                    }
-                    aa[i] = new_val;
-                    pos++;
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
                 }
+                float new_val = f(aa[index], bb[pos]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                pos++;
             }
             break;
         }

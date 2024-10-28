@@ -87,11 +87,14 @@ public:
             uint32_t *segment = new uint32_t[segment_len];
             uint32_t pos = 5 + bitmap_len;
             memcpy(segment, data, 20 + (bitmap_len << 2));
-            for (uint32_t i = 0; i < (uint32_t)vec_len; i++) {
-                if (bm -> exist(i)) {
-                    segment[pos] = data[5 + bitmap_len + i];
-                    pos++;
+            bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
                 }
+                segment[pos] = data[5 + bitmap_len + index];
+                pos++;
             }
             return {(char *)segment, segment_len << 2};
         }

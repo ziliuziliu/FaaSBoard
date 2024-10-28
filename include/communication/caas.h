@@ -221,21 +221,19 @@ public:
                 case CAAS_MASKED_BROADCAST: {
                     bool segment_type = caas_adaptive_segment<T>(this);
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    VLOG(1) << "object " << this -> object_id << " sending masked broadcast";
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    VLOG(1) << "object " << this -> object_id << " have sended masked broadcast";
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
-                    // t.tick("recv_all");
+                    t.tick("recv_all");
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    // t.from_tick();
-                    // t.tick("reduce_adaptive_segment");
+                    t.from_tick();
+                    t.tick("reduce_adaptive_segment");
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
-                    // t.from_tick();
+                    t.from_tick();
                     delete [] segment.first;
                     break;
                 }
@@ -246,21 +244,19 @@ public:
         } else {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
-                    VLOG(1) << "object " << this -> object_id << " wait on masked broadcast";
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    VLOG(1) << "object " << this -> object_id << " has received masked broadcast";
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
                     bool segment_type = caas_adaptive_segment<T>(this);
-                    // t.tick("make_adaptive_segment");
+                    t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    // t.from_tick();
-                    // t.tick("send_all");
+                    t.from_tick();
+                    t.tick("send_all");
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    // t.from_tick();
+                    t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }
@@ -319,11 +315,14 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
         uint32_t *segment = new uint32_t[segment_len];
         uint32_t pos = 5 + object -> bitmap_len;
         memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
-        for (uint32_t i = 0; i < object -> vec_len; i++) {
-            if (object -> bm -> exist(i)) {
-                segment[pos] = object -> vec[i];
-                pos++;
+        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+        for (;;) {
+            uint32_t index = it -> next();
+            if (index == 0xffffffff) {
+                break;
             }
+            segment[pos] = object -> vec[index];
+            pos++;
         }
         return {(char *)segment, segment_len << 2};
     }
@@ -338,11 +337,14 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     } else {
         memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
         uint32_t pos = 5 + object -> bitmap_len;
-        for (uint32_t i = 0; i < object -> vec_len; i++) {
-            if (object -> bm -> exist(i)) {
-                object -> vec[i] = segment[pos];
-                pos++;
+        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+        for (;;) {
+            uint32_t index = it -> next();
+            if (index == 0xffffffff) {
+                break;
             }
+            object -> vec[index] = segment[pos];
+            pos++;
         }
     }
 }

@@ -98,4 +98,50 @@ struct bitmap {
 
 };
 
+struct bitmap_iterator {
+
+    bitmap *bm;
+    uint32_t now, limit;
+
+    bitmap_iterator(bitmap *bm, uint32_t limit):bm(bm),limit(limit) {
+        now = 0;
+    }
+
+    uint32_t next() {
+        if (!(bm -> get_size())) {
+            return 0xffffffff;
+        }
+        while (now & 0x1f) {
+            if (now >= limit) {
+                return 0xffffffff;
+            }
+            if (bm -> exist(now)) {
+                now++;
+                return now - 1;
+            }
+            now++;
+        }
+        for (;;) {
+            if (now >= limit) {
+                return 0xffffffff;
+            }
+            if (!(bm -> m[(now >> 5) + 1])) {
+                now += 32;
+            } else {
+                for (uint32_t i = 0; i < 32; i++) {
+                    if (now >= limit) {
+                        return 0xffffffff;
+                    }
+                    if (bm -> exist(now)) {
+                        now++;
+                        return now - 1;
+                    }
+                    now++;
+                }
+            }
+        }
+    }
+
+};
+
 #endif
