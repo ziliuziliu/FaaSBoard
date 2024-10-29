@@ -13,7 +13,7 @@
 
 -   `build` : Compiled testing programs and applications.
 -   `data` : Store the results of graph computing. 
--   `inlucde` : Header files of the configurations of the graph computing system.
+-   `incsdfslude` : Configurations and implementations of the graph computing system.
     -   `app` : Applications to run on the system.
     -   `communication` : Set-up for communications between different worker.
     -   `compute` : Define graph and graph set with their computing functions.
@@ -66,12 +66,39 @@ cd build
 ./preprocess_and_save -graph_file ../original/soc-LiveJournal1.txt -graph_root_dir ../data/livejournal -vertices 4847571 -edges 68993773 --v 1
 ```
 
-Once preprocessing ends, you can run the system concurrently in one host:
+Once preprocessing ends, run the server program to set up the meta and proxy:
+
+```bash
+# Meta server is the worker storing the data
+./meta_server -proxy_server_list 127.0.0.1 --v 1
+# Proxy server config is in proxy.txt
+./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
+```
+
+ Then run the system concurrently:
 
 ```bash
 # Run bfs on livejournal dataset
 ./test_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/livejournal/0 -cores 4 --v 1 > 0.txt 2>&1 & ./test_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/livejournal/1 -cores 4 --v 1 > 1.txt 2>&1 & ./test_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/livejournal/2 -cores 4 --v 1 > 2.txt 2>&1 & ./test_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/livejournal/3 -cores 4 --v 1 > 3.txt 2>&1
 ```
+
+Prompts for flags in above commands:
+
+```
+	-- graph_root_dir: root directory for graph dataset in csr binary.
+	-- graph_file: original graph dataset file.
+	-- vertices: #vertices.
+	-- edge: #edges.
+	-- request_id: request id.
+	-- bfs_root: root vertex for bfs.
+	-- graph_dir: directory for graph dataset in csr binary.
+	-- proxy_server_list: list of available proxy server addresses (ip) separated by comma.
+	-- cores: cores to use.
+	-- application: application type (bfs, cc, pr, sssp).
+	-- no_pipeline: no in-exec_each-out-exec_diagonal pipeline.
+```
+
+
 
 ### URLs
 
@@ -102,26 +129,3 @@ make
 ```
 
 The script will invoke a graph processing query. After a while, the script will return the results.
-
-## Distributed Deployment
-
-To check the aws cpus and set up the servers:
-
-1. Build the testing files in `build` directory.
-
-```bash
-make aws-lambda-package-cpu_test
-```
-
-2. Run the meta server program with IP of the worker storing the data.
-
-```bash
-./meta_server -proxy_server_list 127.0.0.1 --v 1
-```
-
-3. Run the proxy with configuration in `proxy.txt`
-
-````bash
-./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
-````
-
