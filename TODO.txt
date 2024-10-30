@@ -7,6 +7,8 @@
 14. each segment need a socket and a exclusive connection. is there chances to use only one socket?
 17. reduce_vec_masked_sparse parallelize?
 18. in-exec_each, exec_each-out pipelining (msg blocks)
-19.
+19. 3-level sparse vector
+20. bug: in pipeline_run, one of the subgraph goes very fast to exec_diagonal, modifies the in_segment that another subgraph is waiting on 
+21.
 
 Now version: vertex value is 32bit, only on raw machine

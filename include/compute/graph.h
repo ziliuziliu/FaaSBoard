@@ -118,27 +118,26 @@ public:
             #pragma omp parallel for schedule(dynamic, 1000)
             for (uint32_t v = start_source; v < end_source; v++) {
                 if (in_segment -> bm -> exist(v - start_source)) {
-                    for (uint32_t off = out_offset[v - from_source]; off < out_offset[v + 1 - from_source]; off++) {
-                        uint32_t dest = out_dest[off];
-                        ewT weight = (weighted) ? out_weight[off] : ewT();
-                        sparse_func(in_segment, out_segment, v, dest, weight);
-                    }
+                    uint32_t *out_dst = out_dest + out_offset[v - from_source];
+                    ewT *out_w = weighted ? out_weight + out_offset[v - from_source] : nullptr;
+                    uint32_t out_d = out_offset[v + 1 - from_source] - out_offset[v - from_source];
+                    sparse_func(in_segment, out_segment, v, out_dst, out_w, out_d);
                 }
             }
         } else {
+            timer t;
             VLOG(1) << "running in dense mode";
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;
+            t.tick("dense mode");
             #pragma omp parallel for schedule(dynamic, 1000)
             for (uint32_t v = start_dest; v < end_dest; v++) {
-                for (uint32_t off = in_offset[v - from_dest]; off < in_offset[v + 1 - from_dest]; off++) {
-                    uint32_t source = in_source[off];
-                    ewT weight = (weighted) ? in_weight[off] : ewT();
-                    if (in_segment -> bm -> exist(source - in_segment -> start_index)) {
-                        dense_func(in_segment, out_segment, source, v, weight);
-                    }
-                }
+                uint32_t *in_src = in_source + in_offset[v - from_dest];
+                ewT *in_w = weighted ? in_weight + in_offset[v - from_dest] : nullptr;
+                uint32_t in_d = in_offset[v + 1 - from_dest] - in_offset[v - from_dest];
+                dense_func(in_segment, out_segment, v, in_src, in_w, in_d);
             }
+            t.from_tick();
         }
         uint32_t activated = 0;
         activated += out_segment -> bm -> get_size();
