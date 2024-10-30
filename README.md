@@ -13,7 +13,7 @@
 
 -   `build` : Compiled testing programs and applications.
 -   `data` : Store the results of graph computing. 
--   `incsdfslude` : Configurations and implementations of the graph computing system.
+-   `include` : Configurations and implementations of the graph computing system.
     -   `app` : Applications to run on the system.
     -   `communication` : Set-up for communications between different worker.
     -   `compute` : Define graph and graph set with their computing functions.
