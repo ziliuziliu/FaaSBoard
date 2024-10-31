@@ -17,7 +17,7 @@ find_package(gflags REQUIRED)
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -O3 -fno-strict-aliasing -mavx2")
 
 # Include cmake module
 include(CMakePrintHelpers)
@@ -26,7 +26,7 @@ include(CMakePrintHelpers)
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/third-party/aws-lambda-app/include)
 
-add_definitions("-Wall -g -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambda-install -DGLOG_USE_GLOG_EXPORT")
+add_definitions("-Wall -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambda-install -DGLOG_USE_GLOG_EXPORT")
 
 # Create an executable target
 add_executable(preprocess_and_save ${CMAKE_SOURCE_DIR}/test/preprocess/preprocess_and_save.cpp)

@@ -59,7 +59,7 @@ public:
     }
 
     std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(json meta, uint8_t reduce_op, vwT base_vertex_value) {
-        comm_object<vwT> *in_segment, *out_segment, *vote_object;
+        comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr, *vote_object = nullptr;
         uint8_t comm_type = meta["comm_type"];
         std::string meta_server_addr = meta["meta_server_addr"];
         int meta_server_port = meta["meta_server_port"];

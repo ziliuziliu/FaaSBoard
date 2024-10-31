@@ -1,7 +1,7 @@
 #ifndef _BITMAP_H
 #define _BITMAP_H
 
-#include <util/log.h>
+#include "util/log.h"
 
 #include <cstdint>
 #include <cstring>
@@ -34,6 +34,13 @@ struct bitmap {
 
     uint32_t get_size() {
         return *size;
+    }
+
+    void refresh_size() {
+        *size = 0;
+        for (uint32_t i = 1; i < length >> 5; i++) {
+            *size += __builtin_popcount(m[i]);
+        }
     }
 
     bool exist(uint32_t x) {

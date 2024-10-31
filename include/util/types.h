@@ -26,7 +26,7 @@
 #define CAAS_FD_NOTINQUEUE 0
 #define CAAS_FD_INQUEUE 1
 
-#define CAAS_SPARSE_LIMIT 100000
+#define CAAS_SPARSE_LIMIT 1000000
 
 typedef void * empty;
 
