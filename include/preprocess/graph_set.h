@@ -274,7 +274,7 @@ public:
                 graph_meta["to_dest"] = graph -> to_dest;
                 graph_meta["edges"] = graph -> edges;
                 comm_meta["comm_type"] = CAAS_PROXY;
-                comm_meta["meta_server_addr"] = "172.31.12.143";
+                comm_meta["meta_server_addr"] = "127.0.0.1";
                 comm_meta["meta_server_port"] = 20000;
                 comm_meta["recv"] = std::vector<json>();
                 for (int j = 0; j < (int)cuts.size() - 1; j++) {
