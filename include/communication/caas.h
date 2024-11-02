@@ -66,6 +66,14 @@ void caas_segment_set_segment_type(uint32_t *flag, bool segment_type) {
     *flag = ((*flag) & ~(1 << 30)) | (segment_type << 30);
 }
 
+bool caas_segment_get_is_pair(uint32_t flag) {
+    return flag & (1 << 29);
+}
+
+void caas_segment_set_is_pair(uint32_t *flag, bool is_pair) {
+    *flag = ((*flag) & ~(1 << 29)) | (is_pair << 29);
+}
+
 void caas_send_all(int fd, char *data, size_t len) {
     size_t pos = 0;
     send(fd, &len, sizeof(size_t), 0);
@@ -97,7 +105,7 @@ public:
     uint32_t object_id;
     uint32_t bitmap_len;
     uint32_t vec_len;
-    // | root, 1 bit | segment_type, 1 bit | 10 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
+    // | root, 1 bit | segment_type, 1 bit | is_pair, 1 bit | 9 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
     uint32_t flag;
 
     uint32_t *data;
@@ -312,6 +320,10 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
     if (object -> bitmap_len == 0) {
         return {nullptr, 0};
     }
+    // Check if the segment should be index-value pairs
+    bool is_pair = (object -> bm -> get_size() <= CAAS_SPARSE_PAIR_THRESHOLD);
+    caas_segment_set_is_pair(object -> data + 4, is_pair);
+    
     if (segment_type == CAAS_DENSE) {
         return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
     } else {
@@ -321,7 +333,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
             uint32_t seg_pairs_len = 5 + obj_bm_size * 2;
             uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
             uint32_t pos = 5;
-            memcpy(seg_pairs, object -> data, 20); // FIXME: 20 is the size of the first 5 elements
+            memcpy(seg_pairs, object -> data, 20); // 20 is the size of the first 5 elements
             bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
             for (;;) {
                 uint32_t index = it -> next();
@@ -356,19 +368,30 @@ template <class T>
 void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
     bool segment_type = caas_segment_get_segment_type(segment[4]);
+    bool is_pair = caas_segment_get_is_pair(segment[4]);
     if (segment_type == CAAS_DENSE) {
         memcpy(object -> data, data, len);
     } else {
-        memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
-        uint32_t pos = 5 + object -> bitmap_len;
-        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
-        for (;;) {
-            uint32_t index = it -> next();
-            if (index == 0xffffffff) {
-                break;
+        if (is_pair) {
+            memcpy(object -> data, segment, 20);
+            uint32_t pos = 5;
+            for (uint32_t i = 0; i < object -> bm -> get_size(); i++) {
+                uint32_t index = segment[pos];
+                object -> vec[index] = segment[pos + 1];
+                pos += 2;
             }
-            object -> vec[index] = segment[pos];
-            pos++;
+        } else {
+            memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
+            uint32_t pos = 5 + object -> bitmap_len;
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                object -> vec[index] = segment[pos];
+                pos++;
+            }
         }
     }
 }
@@ -377,12 +400,17 @@ template <class T>
 void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
     bool segment_type = caas_segment_get_segment_type(segment[4]);
+    bool is_pair = caas_segment_get_is_pair(segment[4]);
     uint8_t reduce_op = caas_flag_get_reduce_op(segment[4]);
     if (segment_type == CAAS_DENSE) {
         reduce_vec_masked_dense<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, reduce_op);
     } else {
-        bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
-        reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);
+        if (is_pair) {
+            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object -> vec_len, object -> bm, reduce_op);
+        } else {
+            bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
+            reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);
+        }
     }
 }
 
