@@ -308,23 +308,47 @@ bool caas_adaptive_segment(comm_object<T> *object) {
 template <class T>
 std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, bool segment_type) {
     caas_segment_set_segment_type(object -> data + 4, segment_type);
+    // Return null if the communication object has no data
+    if (object -> bitmap_len == 0) {
+        return {nullptr, 0};
+    }
     if (segment_type == CAAS_DENSE) {
         return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
     } else {
-        uint32_t segment_len = 5 + object -> bitmap_len + object -> bm -> get_size();
-        uint32_t *segment = new uint32_t[segment_len];
-        uint32_t pos = 5 + object -> bitmap_len;
-        memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
-        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
-        for (;;) {
-            uint32_t index = it -> next();
-            if (index == 0xffffffff) {
-                break;
+        uint32_t obj_bm_size = object -> bm -> get_size();
+        if ( obj_bm_size <= CAAS_SPARSE_PAIR_THRESHOLD) {
+            // Construct sparse segment with only index-value pairs whose value is not zero
+            uint32_t seg_pairs_len = 5 + obj_bm_size * 2;
+            uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
+            uint32_t pos = 5;
+            memcpy(seg_pairs, object -> data, 20); // FIXME: 20 is the size of the first 5 elements
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                seg_pairs[pos] = index;
+                seg_pairs[pos + 1] = object -> vec[index];
+                pos += 2;
             }
-            segment[pos] = object -> vec[index];
-            pos++;
+            return {(char *)seg_pairs, seg_pairs_len << 2}; // FIXME: why << 2?
+        } else {
+            uint32_t segment_len = 5 + object -> bitmap_len + obj_bm_size;
+            uint32_t *segment = new uint32_t[segment_len];
+            uint32_t pos = 5 + object -> bitmap_len;
+            memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                segment[pos] = object -> vec[index];
+                pos++;
+            }
+            return {(char *)segment, segment_len << 2};
         }
-        return {(char *)segment, segment_len << 2};
     }
 }
 
