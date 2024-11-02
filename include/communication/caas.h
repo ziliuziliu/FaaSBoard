@@ -344,7 +344,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
                 seg_pairs[pos + 1] = object -> vec[index];
                 pos += 2;
             }
-            return {(char *)seg_pairs, seg_pairs_len << 2}; // FIXME: why << 2?
+            return {(char *)seg_pairs, (pos * sizeof(uint32_t)) << 2}; // FIXME: why << 2?
         } else {
             uint32_t segment_len = 5 + object -> bitmap_len + obj_bm_size;
             uint32_t *segment = new uint32_t[segment_len];
@@ -406,7 +406,7 @@ void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len
         reduce_vec_masked_dense<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, reduce_op);
     } else {
         if (is_pair) {
-            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object -> vec_len, object -> bm, reduce_op);
+            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object->vec_len, len, object -> bm, reduce_op);
         } else {
             bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
             reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);

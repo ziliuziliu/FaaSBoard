@@ -288,7 +288,7 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
 }
 
 template <class T>
-void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
+void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t a_len, uint32_t b_len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
     if (data_type == 0xff) {
         if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
@@ -302,42 +302,52 @@ void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t len, bitmap *a_bm, uint8
         case CAAS_UINT32: {
             reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
             uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
-            uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                uint32_t new_val = f(aa[i], bb[pos]);
-                if (new_val != aa[i]) {
-                    a_bm -> add(i);
+            // b is a pair of index and value, so we need to use the index to update a
+            while (bb <= (uint32_t *)b + b_len) {
+                uint32_t index = *bb;
+                if (index == 0xffffffff || index >= a_len) {
+                    continue;
                 }
-                aa[i] = new_val;
-                pos++;
+                uint32_t new_val = f(aa[index], *(bb + 1));
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                bb += 2;
             }
             break;
         }
         case CAAS_INT: {
             reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
-            uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                int new_val = f(aa[i], bb[pos]);
-                if (new_val != aa[i]) {
-                    a_bm -> add(i);
+            while (bb <= (int *)b + b_len) {
+                uint32_t index = *bb;
+                if (index == 0xffffffff || index >= a_len) {
+                    continue;
                 }
-                aa[i] = new_val;
-                pos++;
+                int new_val = f(aa[index], *(bb + 1));
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                bb += 2;
             }
             break;
         }
         case CAAS_FLOAT: {
             reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
             float *aa = (float *)a, *bb = (float *)b;
-            uint32_t pos = 0;
-            for (uint32_t i = 0; i < len; i++) {
-                float new_val = f(aa[i], bb[pos]);
-                if (new_val != aa[i]) {
-                    a_bm -> add(i);
+            while (bb <= (float *)b + b_len) {
+                uint32_t index = *bb;
+                if (index == 0xffffffff || index >= a_len) {
+                    continue;
                 }
-                aa[i] = new_val;
-                pos++;
+                float new_val = f(aa[index], *(bb + 1));
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                bb += 2;
             }
             break;
         }

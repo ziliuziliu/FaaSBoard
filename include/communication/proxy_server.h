@@ -111,6 +111,7 @@ public:
         uint32_t *segment = (uint32_t *)raw_data;
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
         bool segment_type = caas_segment_get_segment_type(flag);
+        bool is_pair = caas_segment_get_is_pair(flag);
         uint8_t data_type = caas_flag_get_data_type(flag);
         uint8_t reduce_op = caas_flag_get_reduce_op(flag);
         if (segment_type == CAAS_DENSE) {
@@ -119,9 +120,14 @@ public:
             reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
             reduce_adaptive_segment_m.unlock();
         } else {
-            VLOG(1) << "reduce sparse";
-            bitmap *segment_bm = new bitmap(vec_len, segment + 5);
-            reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
+            if (is_pair) {
+                VLOG(1) << "reduce sparse pair";
+                reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, len, bm, reduce_op, data_type);
+            } else {
+                VLOG(1) << "reduce sparse";
+                bitmap *segment_bm = new bitmap(vec_len, segment + 5);
+                reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
+            }
         }
     }
 
