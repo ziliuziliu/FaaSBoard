@@ -4,6 +4,9 @@
 #define INCOMING 0
 #define OUTGOING 1
 
+#define WORKING 0
+#define STEALING 1
+
 #define CAAS_UINT32 0
 #define CAAS_INT 1
 #define CAAS_FLOAT 2

@@ -9,6 +9,8 @@
 18. in-exec_each, exec_each-out pipelining (msg blocks)
 19. 3-level sparse vector
 20. bug: in pipeline_run, one of the subgraph goes very fast to exec_diagonal, modifies the in_segment that another subgraph is waiting on 
-21.
+21. cuts / 64 * 64
+22. implement gemini's work stealing
+23.
 
 Now version: vertex value is 32bit, only on raw machine

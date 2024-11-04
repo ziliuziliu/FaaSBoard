@@ -19,23 +19,63 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(graph_dir, CAAS_UP, 0xffffffff);
     }
+    graphs -> set_begin_func(
+        [root](comm_object<uint32_t> *in_seg, uint32_t v){
+            if (v == root) {
+                in_seg -> bm -> add(v - in_seg -> start_index);
+                in_seg -> vec[v - in_seg -> start_index] = 0;
+                return 1;
+            } else {
+                in_seg -> vec[v - in_seg -> start_index] = 0xffffffff;
+                return 0;
+            }
+        }
+    );
+    graphs -> set_sparse_func(
+        [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t src, uint32_t *out_dst, empty *out_w, uint32_t out_d) {
+            uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
+            for (uint32_t i = 0; i < out_d; i++) {
+                uint32_t dst = out_dst[i];
+                uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
+                if (*dst_addr == 0xffffffff && cas<uint32_t>(dst_addr, 0xffffffff, *src_addr + 1)) {
+                    out_seg -> bm -> add(dst - out_seg -> start_index);
+                }
+            }
+        }
+    );
+    graphs -> set_dense_func(
+        [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t dst, uint32_t *in_src, empty *in_w, uint32_t in_d) {
+            uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
+            if (*dst_addr != 0xffffffff) {
+                return;
+            }
+            for (uint32_t i = 0; i < in_d; i++) {
+                uint32_t src = in_src[i];
+                if (in_seg -> bm -> exist(src - in_seg -> start_index)) {
+                    uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
+                    *dst_addr = *src_addr + 1;
+                    out_seg -> bm -> add(dst - out_seg -> start_index);
+                    break;
+                }
+            }
+        }
+    );
+    graphs -> set_reduce_func(
+        [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
+            uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
+            uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
+            if (*in_addr == 0xffffffff) {
+                *in_addr = *out_addr;
+                in_seg -> bm -> add(v - in_seg -> start_index);
+            }
+        }
+    );
     t.from_tick();
     t.tick("connect");
     graphs -> connect(request_id);
     t.from_tick();
     t.tick("begin"); 
-    graphs -> begin(
-        0,
-        [root](comm_object<uint32_t> *in_seg, uint32_t v){
-        if (v == root) {
-            in_seg -> bm -> add(v - in_seg -> start_index);
-            in_seg -> vec[v - in_seg -> start_index] = 0;
-            return 1;
-        } else {
-            in_seg -> vec[v - in_seg -> start_index] = 0xffffffff;
-            return 0;
-        }
-    });
+    graphs -> begin(0);
     t.from_tick();
     if (!no_pipeline) {
         for (int round = 1; ; round++) {
@@ -47,42 +87,7 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
                 break;
             }
             t.tick(info_prefix + "combine_run");
-            graphs -> pipeline_run(
-                round, -1, 
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t src, uint32_t *out_dst, empty *out_w, uint32_t out_d) {
-                    uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
-                    for (uint32_t i = 0; i < out_d; i++) {
-                        uint32_t dst = out_dst[i];
-                        uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
-                        if (*dst_addr == 0xffffffff && cas<uint32_t>(dst_addr, 0xffffffff, *src_addr + 1)) {
-                            out_seg -> bm -> add(dst - out_seg -> start_index);
-                        }
-                    }
-                },
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t dst, uint32_t *in_src, empty *in_w, uint32_t in_d) {
-                    uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
-                    if (*dst_addr != 0xffffffff) {
-                        return;
-                    }
-                    for (uint32_t i = 0; i < in_d; i++) {
-                        uint32_t src = in_src[i];
-                        if (in_seg -> bm -> exist(src - in_seg -> start_index)) {
-                            uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
-                            *dst_addr = *src_addr + 1;
-                            out_seg -> bm -> add(dst - out_seg -> start_index);
-                            break;
-                        }
-                    }
-                },
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
-                    uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
-                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
-                    if (*in_addr == 0xffffffff) {
-                        *in_addr = *out_addr;
-                        in_seg -> bm -> add(v - in_seg -> start_index);
-                    }
-                }
-            );
+            graphs -> pipeline_run(round, -1);
             t.from_tick();
         }
     } else {
@@ -98,50 +103,13 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
             graphs -> in(round);
             t.from_tick();
             t.tick(info_prefix + "exec_each");
-            graphs -> exec_each(
-                round, -1,
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t src, uint32_t *out_dst, empty *out_w, uint32_t out_d) {
-                    uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
-                    for (uint32_t i = 0; i < out_d; i++) {
-                        uint32_t dst = out_dst[i];
-                        uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
-                        if (*dst_addr == 0xffffffff && cas<uint32_t>(dst_addr, 0xffffffff, *src_addr + 1)) {
-                            out_seg -> bm -> add(dst - out_seg -> start_index);
-                        }
-                    }
-                },
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t dst, uint32_t *in_src, empty *in_w, uint32_t in_d) {
-                    uint32_t *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
-                    if (*dst_addr != 0xffffffff) {
-                        return;
-                    }
-                    for (uint32_t i = 0; i < in_d; i++) {
-                        uint32_t src = in_src[i];
-                        if (in_seg -> bm -> exist(src - in_seg -> start_index)) {
-                            uint32_t *src_addr = in_seg -> vec + (src - in_seg -> start_index);
-                            *dst_addr = *src_addr + 1;
-                            out_seg -> bm -> add(dst - out_seg -> start_index);
-                            break;
-                        }
-                    }
-                }
-            );
+            graphs -> exec_each(round, -1);
             t.from_tick();
             t.tick(info_prefix + "out");
             graphs -> out(round);
             t.from_tick();
             t.tick(info_prefix + "exec_diagonal");
-            graphs -> exec_diagonal(
-                round,
-                [](comm_object<uint32_t> *in_seg, comm_object<uint32_t> *out_seg, uint32_t v) {
-                    uint32_t *in_addr = in_seg -> vec + (v - in_seg -> start_index);
-                    uint32_t *out_addr = out_seg -> vec + (v - out_seg -> start_index);
-                    if (*in_addr == 0xffffffff) {
-                        *in_addr = *out_addr;
-                        in_seg -> bm -> add(v - in_seg -> start_index);
-                    }
-                }
-            );
+            graphs -> exec_diagonal(round);
             t.from_tick();
         }
     }

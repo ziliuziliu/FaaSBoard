@@ -58,10 +58,10 @@ public:
     }
 
     partition_result row_partition(int total_block) {
-        partition_result result(total_block, 1);
+        partition_result result;
         uint64_t current_edges = 0, previous_from_source = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
-            if (current_edges * total_block >= meta.total_e) {
+            if (i % 64 == 0 && current_edges * total_block >= meta.total_e) {
                 result.add(previous_from_source, i, 0, meta.total_v, current_edges);
                 previous_from_source = i;
                 current_edges = 0;
@@ -73,10 +73,10 @@ public:
     }
 
     partition_result column_partition(int total_block) {
-        partition_result result(1, total_block);
+        partition_result result;
         uint64_t current_edges = 0, previous_from_dest = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
-            if (current_edges * total_block >= meta.total_e) {
+            if (i % 64 == 0 && current_edges * total_block >= meta.total_e) {
                 result.add(0, meta.total_v, previous_from_dest, i, current_edges);
                 previous_from_dest = i;
                 current_edges = 0;
@@ -98,7 +98,7 @@ public:
             partition_block block = row_result.blocks[t];
             uint32_t accum_edges = 0, previous_from_dest = 0;
             for (uint32_t i = 0; i < meta.total_v; i++) {
-                if (accum_edges * cut >= block.edges) {
+                if (i % 64 == 0 && accum_edges * cut >= block.edges) {
                     #pragma omp critical
                     {
                         final_result.add(block.from_source, block.to_source, previous_from_dest, i, accum_edges);
@@ -134,7 +134,7 @@ public:
             partition_block block = column_result.blocks[t];
             uint32_t accum_edges = 0, previous_from_source = 0;
             for (uint32_t i = 0; i < meta.total_v; i++) {
-                if (accum_edges * cut >= block.edges) {
+                if (i % 64 == 0 && accum_edges * cut >= block.edges) {
                     #pragma omp critical
                     {
                         final_result.add(previous_from_source, i, block.from_dest, block.to_dest, accum_edges);
@@ -160,7 +160,10 @@ public:
     }
 
     partition_result generate_checkerboard_partition_from_cuts(int cut, std::vector<uint32_t> cuts) {
-        partition_result result(cut, cut);
+        for (int i = 0; i < (int)cuts.size() - 1; i++) {
+            cuts[i] = cuts[i] / 64 * 64;
+        }
+        partition_result result;
         #pragma omp parallel for
         for (int t = 0; t < cut; t++) {
             std::vector<uint32_t> block_edges(cut);

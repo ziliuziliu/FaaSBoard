@@ -25,19 +25,15 @@ struct partition_block {
 
 struct partition_result {
 
-    int row, column;
     std::vector<partition_block> blocks;
 
     partition_result() {}
-    partition_result(int row, int column):row(row),column(column) {}
 
     void add(
         uint32_t from_source, uint32_t to_source, uint32_t from_dest, uint32_t to_dest,
         uint32_t edges
     ) {
-        blocks.push_back(partition_block(
-            from_source, to_source, from_dest, to_dest, edges
-        ));
+        blocks.push_back(partition_block(from_source, to_source, from_dest, to_dest, edges));
     }
 
     double get_unbalance_ratio() {

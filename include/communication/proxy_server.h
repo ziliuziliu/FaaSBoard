@@ -21,6 +21,7 @@
 #include <unordered_map>
 #include <utility>
 #include <chrono>
+#include <immintrin.h>
 
 #define MAX_CONNECTION 4096
 
@@ -37,6 +38,7 @@ public:
     std::vector<int> fds;
     int cnt, bitmap_len, vec_len;
     uint32_t base_vertex_value, flag;
+    __m256i base_vertex_value_m256;
     bool initialized;
 
     segment_base() {}
@@ -51,6 +53,7 @@ public:
         this -> data = new uint32_t[5 + bitmap_len + vec_len];
         this -> bm = has_bitmap ? new bitmap(vec_len, data + 5) : nullptr;
         this -> base_vertex_value = base_vertex_value;
+        this -> base_vertex_value_m256 = _mm256_set1_epi32(base_vertex_value);
         this -> initialized = false;
         reset();
     }
@@ -60,7 +63,11 @@ public:
         if (bm != nullptr) {
             bm -> clear();
         }
-        for (int i = 0; i < vec_len; i++) {
+        int i;
+        for (i = 0; i + 8 < vec_len; i += 8) {
+            _mm256_storeu_si256((__m256i*)&data[5 + bitmap_len + i], base_vertex_value_m256);
+        }
+        for (; i < vec_len; i++) {
             data[5 + bitmap_len + i] = base_vertex_value;
         }
     }

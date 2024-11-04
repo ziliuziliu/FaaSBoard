@@ -137,11 +137,35 @@ public:
         }
     }
 
-    void begin(int round, auto vertex_initialize_func) {
+    void set_begin_func(auto begin_func) {
+        for (int i = 0; i < (int)graphs.size(); i++) {
+            graphs[i] -> begin_func = begin_func;
+        }
+    }
+
+    void set_sparse_func(auto sparse_func) {
+        for (int i = 0; i < (int)graphs.size(); i++) {
+            graphs[i] -> sparse_func = sparse_func;
+        }
+    }
+
+    void set_dense_func(auto dense_func) {
+        for (int i = 0; i < (int)graphs.size(); i++) {
+            graphs[i] -> dense_func = dense_func;
+        }
+    }
+
+    void set_reduce_func(auto reduce_func) {
+        for (int i = 0; i < (int)graphs.size(); i++) {
+            graphs[i] -> reduce_func = reduce_func;
+        }
+    }
+
+    void begin(int round) {
         omp_set_num_threads(FLAGS_cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " vertex initialize";
-            graphs[i] -> begin(round, i, vertex_initialize_func);
+            graphs[i] -> begin(round, i);
         }
     }
 
@@ -186,24 +210,24 @@ public:
         }
     }
 
-    void exec_each(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func) {
+    void exec_each(int round, vwT vertex_initial_value) {
         omp_set_num_threads(FLAGS_cores);
         exec_each_initialize(vertex_initial_value);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec block";
-            graphs[i] -> exec_each(round, i, vertex_initial_value, sparse_func, dense_func);
+            graphs[i] -> exec_each(round, i, vertex_initial_value);
         }
     }
 
-    void exec_diagonal(int round, auto reduce_func) {
+    void exec_diagonal(int round) {
         omp_set_num_threads(FLAGS_cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec diagonal";
-            graphs[i] -> exec_diagonal(round, i, reduce_func);
+            graphs[i] -> exec_diagonal(round, i);
         }
     }
 
-    void pipeline_run(int round, vwT vertex_initial_value, auto sparse_func, auto dense_func, auto reduce_func) {
+    void pipeline_run(int round, vwT vertex_initial_value) {
         omp_set_num_threads(FLAGS_cores);
         exec_each_initialize(vertex_initial_value);
         std::string info_prefix = "round " + std::to_string(round) + " ";
@@ -234,7 +258,7 @@ public:
                 int index;
                 exec_each_queue.wait_dequeue(index);
                 VLOG(1) << "graph " << index << " exec block";
-                graphs[index] -> exec_each(round, index, vertex_initial_value, sparse_func, dense_func);
+                graphs[index] -> exec_each(round, index, vertex_initial_value);
                 graphs[index] -> out_segment -> finish++;
                 if (graphs[index] -> out_segment -> finish == graphs[index] -> out_segment -> colocated_member) {
                     out_threads.push_back(std::thread(out_function, graphs[index] -> out_segment));
@@ -246,7 +270,7 @@ public:
                 int index;
                 exec_diagonal_queue.wait_dequeue(index);
                 VLOG(1) << "graph " << index << " exec diagonal";
-                graphs[index] -> exec_diagonal(round, index, reduce_func);
+                graphs[index] -> exec_diagonal(round, index);
             }
         });
         for (int i = 0; i < (int)in_threads.size(); i++) {
