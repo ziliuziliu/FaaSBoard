@@ -318,7 +318,9 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
     caas_segment_set_segment_type(object -> data + 4, segment_type);
     // Return null if the communication object has no data
     if (object -> bitmap_len == 0) {
-        return {nullptr, 0};
+        uint32_t *seg_pairs = new uint32_t[1];
+        *seg_pairs = 0xffffffff;
+        return {(char*)seg_pairs, 4};
     }
     // Check if the segment should be index-value pairs
     bool is_pair = (object -> bm -> get_size() <= CAAS_SPARSE_PAIR_THRESHOLD);
@@ -328,7 +330,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
         return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
     } else {
         uint32_t obj_bm_size = object -> bm -> get_size();
-        if ( obj_bm_size <= CAAS_SPARSE_PAIR_THRESHOLD) {
+        if (is_pair) {
             // Construct sparse segment with only index-value pairs whose value is not zero
             uint32_t seg_pairs_len = 5 + obj_bm_size * 2;
             uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
@@ -344,7 +346,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
                 seg_pairs[pos + 1] = object -> vec[index];
                 pos += 2;
             }
-            return {(char *)seg_pairs, (pos * sizeof(uint32_t)) << 2}; // FIXME: why << 2?
+            return {(char *)seg_pairs, pos << 2};
         } else {
             uint32_t segment_len = 5 + object -> bitmap_len + obj_bm_size;
             uint32_t *segment = new uint32_t[segment_len];
@@ -366,7 +368,10 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
 
 template <class T>
 void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
-    uint32_t *segment = (uint32_t *)data;
+    uint32_t *segment = (uint32_t *)data; 
+    if (len == 4 && *segment == 0xffffffff) {
+        return;
+    }
     bool segment_type = caas_segment_get_segment_type(segment[4]);
     bool is_pair = caas_segment_get_is_pair(segment[4]);
     if (segment_type == CAAS_DENSE) {
@@ -375,9 +380,13 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
         if (is_pair) {
             memcpy(object -> data, segment, 20);
             uint32_t pos = 5;
-            for (uint32_t i = 0; i < object -> bm -> get_size(); i++) {
+            // Clear current bitmap
+            object -> bm -> clear();
+            while (pos < (len >> 2)) {
+                // Update bitmap and vector
                 uint32_t index = segment[pos];
                 object -> vec[index] = segment[pos + 1];
+                object -> bm -> add(index);
                 pos += 2;
             }
         } else {
@@ -399,6 +408,9 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
 template <class T>
 void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
+    if (len == 4 && *segment == 0xffffffff) {
+        return;
+    }
     bool segment_type = caas_segment_get_segment_type(segment[4]);
     bool is_pair = caas_segment_get_is_pair(segment[4]);
     uint8_t reduce_op = caas_flag_get_reduce_op(segment[4]);
@@ -406,7 +418,7 @@ void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len
         reduce_vec_masked_dense<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, reduce_op);
     } else {
         if (is_pair) {
-            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object->vec_len, len, object -> bm, reduce_op);
+            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object->vec_len, (len >> 2) - 5, object -> bm, reduce_op);
         } else {
             bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
             reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);

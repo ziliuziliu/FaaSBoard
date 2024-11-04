@@ -302,52 +302,46 @@ void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t a_len, uint32_t b_len, b
         case CAAS_UINT32: {
             reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
             uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
+            uint32_t idx = 0;
             // b is a pair of index and value, so we need to use the index to update a
-            while (bb <= (uint32_t *)b + b_len) {
-                uint32_t index = *bb;
-                if (index == 0xffffffff || index >= a_len) {
-                    continue;
-                }
-                uint32_t new_val = f(aa[index], *(bb + 1));
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                uint32_t new_val = f(aa[index], bb[idx + 1]);
                 if (new_val != aa[index]) {
                     a_bm -> add(index);
                 }
                 aa[index] = new_val;
-                bb += 2;
+                idx += 2;
             }
             break;
         }
         case CAAS_INT: {
             reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
-            while (bb <= (int *)b + b_len) {
-                uint32_t index = *bb;
-                if (index == 0xffffffff || index >= a_len) {
-                    continue;
-                }
-                int new_val = f(aa[index], *(bb + 1));
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                int new_val = f(aa[index], bb[idx + 1]);
                 if (new_val != aa[index]) {
                     a_bm -> add(index);
                 }
                 aa[index] = new_val;
-                bb += 2;
+                idx += 2;
             }
             break;
         }
         case CAAS_FLOAT: {
             reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
             float *aa = (float *)a, *bb = (float *)b;
-            while (bb <= (float *)b + b_len) {
-                uint32_t index = *bb;
-                if (index == 0xffffffff || index >= a_len) {
-                    continue;
-                }
-                float new_val = f(aa[index], *(bb + 1));
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                float new_val = f(aa[index], bb[idx + 1]);
                 if (new_val != aa[index]) {
                     a_bm -> add(index);
                 }
                 aa[index] = new_val;
-                bb += 2;
+                idx += 2;
             }
             break;
         }

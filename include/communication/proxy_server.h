@@ -87,28 +87,59 @@ public:
 
     std::pair<char *, size_t> make_adaptive_segment(bool segment_type) {
         caas_segment_set_segment_type(data + 4, segment_type);
+        // Return 0xffffffff if the communication object has no data
+        if (this->bitmap_len == 0) {
+            uint32_t *seg_pairs = new uint32_t[1];
+            *seg_pairs = 0xffffffff;
+            return {(char*)seg_pairs, 4};
+        }
+        // Check if the segment should be index-value pairs
+        bool is_pair = (bm -> get_size() <= CAAS_SPARSE_PAIR_THRESHOLD);
+        caas_segment_set_is_pair(data + 4, is_pair);
+        // Construct the segment
         if (segment_type == CAAS_DENSE) {
             return {(char *)data, (5 + bitmap_len + vec_len) << 2};
         } else {
-            uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
-            uint32_t *segment = new uint32_t[segment_len];
-            uint32_t pos = 5 + bitmap_len;
-            memcpy(segment, data, 20 + (bitmap_len << 2));
-            bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
-            for (;;) {
-                uint32_t index = it -> next();
-                if (index == 0xffffffff) {
-                    break;
+            if (is_pair) {
+                uint32_t segment_len = 5 + bm -> get_size() * 2;
+                uint32_t *segment = new uint32_t[segment_len];
+                memcpy(segment, data, 20);
+                uint32_t pos = 5;
+                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
+                for (;;) {
+                    uint32_t index = it -> next();
+                    if (index == 0xffffffff) {
+                        break;
+                    }
+                    segment[pos] = index;
+                    segment[pos + 1] = data[5 + bitmap_len + index];
+                    pos += 2;
                 }
-                segment[pos] = data[5 + bitmap_len + index];
-                pos++;
+                return {(char *)segment, pos << 2};
+            } else {
+                uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
+                uint32_t *segment = new uint32_t[segment_len];
+                uint32_t pos = 5 + bitmap_len;
+                memcpy(segment, data, 20 + (bitmap_len << 2));
+                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
+                for (;;) {
+                    uint32_t index = it -> next();
+                    if (index == 0xffffffff) {
+                        break;
+                    }
+                    segment[pos] = data[5 + bitmap_len + index];
+                    pos++;
+                }
+                return {(char *)segment, segment_len << 2};
             }
-            return {(char *)segment, segment_len << 2};
         }
     }
 
     void reduce_adaptive_segment(char *raw_data, size_t len) {
         uint32_t *segment = (uint32_t *)raw_data;
+        if (len == 4 && *segment == 0xffffffff) {
+            return;
+        }
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
         bool segment_type = caas_segment_get_segment_type(flag);
         bool is_pair = caas_segment_get_is_pair(flag);
@@ -122,7 +153,7 @@ public:
         } else {
             if (is_pair) {
                 VLOG(1) << "reduce sparse pair";
-                reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, len, bm, reduce_op, data_type);
+                reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
             } else {
                 VLOG(1) << "reduce sparse";
                 bitmap *segment_bm = new bitmap(vec_len, segment + 5);

@@ -54,7 +54,7 @@ struct bitmap {
         __sync_fetch_and_add(size, 1);
     }
 
-    void clear() {
+    void clear() { // FIXME: memset or find and set to 0?
         memset(m, 0, length >> 3);
     }
 
