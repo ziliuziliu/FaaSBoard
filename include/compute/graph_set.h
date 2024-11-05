@@ -43,7 +43,10 @@ public:
                 i, meta, item["from_source"], item["to_source"], item["from_dest"], item["to_dest"], 
                 item["edges"], reduce_op, base_vertex_value
             );
-            newgraph -> read_csr(graph_dir + "/graph" + std::to_string(i) + ".csr");
+            newgraph -> read_csr(
+                graph_dir + "/graph" + std::to_string(i) + ".csr.in",
+                graph_dir + "/graph" + std::to_string(i) + ".csr.out"
+            );
             auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value);
             comm_object<vwT> *in_segment = std::get<0>(objects);
             comm_object<vwT> *out_segment = std::get<1>(objects);

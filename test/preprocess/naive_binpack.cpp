@@ -11,7 +11,7 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
 
     raw_graph<empty> g(41652230, 1468365182);
-    g.read_csr("/data/twitter-2010.csr");
+    g.read_csr("/data/twitter-2010.csr.in", "/data/twitter-2010.csr.out");
 
     partition_result result;
     std::vector<graph_set<empty> *> graphsets;

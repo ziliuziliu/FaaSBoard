@@ -70,52 +70,37 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
             }
         }
     );
-    t.from_tick();
-    t.tick("connect");
     graphs -> connect(request_id);
-    t.from_tick();
-    t.tick("begin"); 
     graphs -> begin(0);
-    t.from_tick();
     if (!no_pipeline) {
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            t.tick(info_prefix + "vote");
-            uint32_t activated = graphs -> vote(); 
-            t.from_tick();
+            uint32_t activated = graphs -> vote();
+            if (round == 1) {
+                t.from_tick();
+            }
             if (activated == 0) {
                 break;
             }
-            t.tick(info_prefix + "combine_run");
             graphs -> pipeline_run(round, -1);
-            t.from_tick();
         }
     } else {
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            t.tick(info_prefix + "vote");
             uint32_t activated = graphs -> vote(); 
-            t.from_tick();
+            if (round == 1) {
+                t.from_tick();
+            }
             if (activated == 0) {
                 break;
             }
-            t.tick(info_prefix + "in");
             graphs -> in(round);
-            t.from_tick();
-            t.tick(info_prefix + "exec_each");
             graphs -> exec_each(round, -1);
-            t.from_tick();
-            t.tick(info_prefix + "out");
             graphs -> out(round);
-            t.from_tick();
-            t.tick(info_prefix + "exec_diagonal");
             graphs -> exec_diagonal(round);
-            t.from_tick();
         }
     }
-    t.tick("disconnect");
     graphs -> disconnect();
-    t.from_tick();
     t.from_start("overall");
     t.tick("save_result");
     graphs -> save_result(graph_dir);

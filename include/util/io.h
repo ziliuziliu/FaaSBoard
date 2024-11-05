@@ -115,50 +115,68 @@ void save_metis_util(std::string path, uint32_t *in_offset, uint32_t *in_source,
 }
 
 template <class T>
-void read_csr_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
-    T *in_weight, T *out_weight, bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e) {
+void read_csr_util(
+    std::string in_path, std::string out_path, 
+    uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, T *in_weight, T *out_weight, 
+    bool weighted, bool only_in, bool only_out, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
+) {
     VLOG(1) << "start reading csr";
-    FILE *csr_file = fopen(path.c_str(), "rb");
     size_t size;
-    size = fread(in_offset, 4, out_vertex_cnt + 1, csr_file);
-    CHECK(size == out_vertex_cnt + 1) << "fread failed";
-    size = fread(in_source, 4, total_e, csr_file);
-    CHECK(size == total_e) << "fread failed";
-    size = fread(out_offset, 4, in_vertex_cnt + 1, csr_file);
-    CHECK(size == in_vertex_cnt + 1) << "fread failed";
-    size = fread(out_dest, 4, total_e, csr_file);
-    CHECK(size == total_e) << "fread failed";
-    if (weighted) {
-        size = fread(in_weight, sizeof(T), total_e, csr_file);
+    if (!only_out) {
+        FILE *in_csr_file = fopen(in_path.c_str(), "rb");
+        size = fread(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
+        CHECK(size == out_vertex_cnt + 1) << "fread failed";
+        size = fread(in_source, 4, total_e, in_csr_file);
         CHECK(size == total_e) << "fread failed";
-        size = fread(out_weight, sizeof(T), total_e, csr_file);
-        CHECK(size == total_e) << "fread failed";
+        if (weighted) {
+            size = fread(in_weight, sizeof(T), total_e, in_csr_file);
+            CHECK(size == total_e) << "fread failed";
+        }
+        fclose(in_csr_file);
     }
-    fclose(csr_file);
+    if (!only_in) {
+        FILE *out_csr_file = fopen(out_path.c_str(), "rb");
+        size = fread(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
+        CHECK(size == in_vertex_cnt + 1) << "fread failed";
+        size = fread(out_dest, 4, total_e, out_csr_file);
+        CHECK(size == total_e) << "fread failed";
+        if (weighted) {
+            size = fread(out_weight, sizeof(T), total_e, out_csr_file);
+            CHECK(size == total_e) << "fread failed";
+        }
+        fclose(out_csr_file);
+    }
     VLOG(1) << "end reading csr";
 }
 
 template <class T>
-void save_csr_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
-    T *in_weight, T *out_weight, bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e) {
+void save_csr_util(
+    std::string in_path, std::string out_path, 
+    uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, T *in_weight, T *out_weight, 
+    bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
+) {
     VLOG(1) << "start saving csr";
-    FILE *csr_file = fopen(path.c_str(), "wb");
+    FILE *in_csr_file = fopen(in_path.c_str(), "wb");
     size_t size;
-    size = fwrite(in_offset, 4, out_vertex_cnt + 1, csr_file);
-    CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
-    size = fwrite(in_source, 4, total_e, csr_file);
-    CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
-    size = fwrite(out_offset, 4, in_vertex_cnt + 1, csr_file);
-    CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
-    size = fwrite(out_dest, 4, total_e, csr_file);
+    size = fwrite(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
+    CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
+    size = fwrite(in_source, 4, total_e, in_csr_file);
     CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
     if (weighted) {
-        size = fwrite(in_weight, sizeof(T), total_e, csr_file);
-        CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
-        size = fwrite(out_weight, sizeof(T), total_e, csr_file);
+        size = fwrite(in_weight, sizeof(T), total_e, in_csr_file);
         CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
     }
-    fclose(csr_file);
+    fclose(in_csr_file);
+    FILE *out_csr_file = fopen(out_path.c_str(), "wb");
+    size = fwrite(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
+    CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
+    size = fwrite(out_dest, 4, total_e, out_csr_file);
+    CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
+    if (weighted) {
+        size = fwrite(out_weight, sizeof(T), total_e, out_csr_file);
+        CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
+    }
+    fclose(out_csr_file);
     VLOG(1) << "end saving csr";
 }
 

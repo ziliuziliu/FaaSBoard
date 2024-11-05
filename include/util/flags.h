@@ -17,6 +17,9 @@ DEFINE_string(proxy_server_list, "", "list of available proxy server addresses (
 DEFINE_uint32(cores, 0, "cores to use");
 DEFINE_string(application, "", "application type (bfs, cc, pr, sssp)");
 DEFINE_bool(no_pipeline, false, "no in-exec_each-out-exec_diagonal pipeline");
+DEFINE_int32(partitions, 0, "how many functions to hold the graph");
+DEFINE_bool(sparse_only, false, "sparse mode");
+DEFINE_bool(dense_only, false, "dense mode");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);

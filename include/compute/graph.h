@@ -71,13 +71,13 @@ public:
         edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value) {
         weighted = !std::is_same<ewT, void *>::value;
         manage = std::max(from_source, from_dest) > std::min(to_source, to_dest);
-        out_offset = new uint32_t[to_source - from_source + 1]();
-        out_dest = new uint32_t[edges]();
-        in_offset = new uint32_t[to_dest - from_dest + 1]();
-        in_source = new uint32_t[edges]();
+        out_offset = FLAGS_dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
+        out_dest = FLAGS_dense_only ? nullptr : new uint32_t[edges]();
+        in_offset = FLAGS_sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
+        in_source = FLAGS_sparse_only ? nullptr : new uint32_t[edges]();
         if (weighted) {
-            in_weight = new ewT[edges]();
-            out_weight = new ewT[edges]();
+            in_weight = FLAGS_sparse_only ? nullptr : new ewT[edges]();
+            out_weight = FLAGS_dense_only ? nullptr : new ewT[edges]();
         }
         VLOG(1) << "graph " << index << " [ " 
             << from_source << ", " << to_source - 1 << " ] -> [ "
@@ -89,9 +89,11 @@ public:
             && in_segment -> vec_len == out_segment -> vec_len;
     }
 
-    void read_csr(std::string path) {
-        read_csr_util(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, to_source - from_source, to_dest - from_dest, edges);
+    void read_csr(std::string in_path, std::string out_path) {
+        read_csr_util(
+            in_path, out_path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, FLAGS_dense_only, FLAGS_sparse_only, to_source - from_source, to_dest - from_dest, edges
+        );
     }
 
     void set_comm_object(comm_object<vwT> *in_segment, comm_object<vwT> *out_segment, comm_object<uint32_t> *vote_object) {
@@ -192,16 +194,18 @@ public:
     void exec_each(int round, int index, vwT vertex_initial_value) {
         uint32_t active_edges = 0;
         in_segment -> print(round);
-        uint32_t start_source = in_segment -> start_index;
-        uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
-        #pragma omp parallel for reduction(+:active_edges)
-        for (uint32_t v = start_source; v < end_source; v++) {
-            if (in_segment -> bm -> exist(v - start_source)) {
-                active_edges += out_offset[v + 1 - from_source] - out_offset[v - from_source];
+        if (!FLAGS_sparse_only && !FLAGS_dense_only) {
+            uint32_t start_source = in_segment -> start_index;
+            uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
+            #pragma omp parallel for reduction(+:active_edges)
+            for (uint32_t v = start_source; v < end_source; v++) {
+                if (in_segment -> bm -> exist(v - start_source)) {
+                    active_edges += out_offset[v + 1 - from_source] - out_offset[v - from_source];
+                }
             }
         }
         bool sparse = active_edges < edges / 20;
-        if (sparse) {
+        if (FLAGS_sparse_only || sparse) {
             VLOG(1) << "running in sparse mode";
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
@@ -211,7 +215,8 @@ public:
                 exec_sparse(start, end);
             });
             t.from_tick();
-        } else {
+        }
+        if (FLAGS_dense_only || !sparse) {
             VLOG(1) << "running in dense mode";
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;

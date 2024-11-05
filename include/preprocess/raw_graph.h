@@ -47,14 +47,18 @@ public:
             weighted, meta.total_v, meta.total_e);
     }
 
-    void read_csr(std::string path) {
-        read_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, meta.total_v, meta.total_v, meta.total_e);
+    void read_csr(std::string in_path, std::string out_path) {
+        read_csr_util<ewT>(
+            in_path, out_path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, false, false, meta.total_v, meta.total_v, meta.total_e
+        );
     }
 
-    void save_csr(std::string path) {
-        save_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, meta.total_v, meta.total_v, meta.total_e);
+    void save_csr(std::string in_path, std::string out_path) {
+        save_csr_util<ewT>(
+            in_path, out_path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            weighted, meta.total_v, meta.total_v, meta.total_e
+        );
     }
 
     partition_result row_partition(int total_block) {
