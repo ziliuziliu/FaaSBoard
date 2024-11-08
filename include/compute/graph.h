@@ -50,17 +50,17 @@ public:
     graph_meta g_meta;
     bool weighted, manage;
     uint32_t from_source, to_source, from_dest, to_dest, edges;
-    uint32_t *in_offset, *in_source, *out_offset, *out_dest;
+    uint32_t *in_offset, *in_source, *out_offset, *out_dest, *in_degree, *out_degree;
     ewT *in_weight, *out_weight;
     comm_object<vwT> *in_segment, *out_segment;
     comm_object<uint32_t> *vote_object;
     uint8_t reduce_op;
     vwT base_vertex_value;
-    std::function<int(comm_object<vwT> *, uint32_t)> begin_func;
+    std::function<int(graph<vwT, ewT> *, uint32_t)> begin_func;
     std::function<
-        void(comm_object<vwT> *, comm_object<vwT> *, uint32_t, uint32_t *, ewT *, uint32_t)
+        void(graph<vwT, ewT> *, int, uint32_t, uint32_t *, ewT *, uint32_t)
     > sparse_func, dense_func;
-    std::function<void(comm_object<uint32_t> *, comm_object<uint32_t> *, uint32_t)> reduce_func;
+    std::function<void(graph<vwT, ewT> *, int, uint32_t)> reduce_func;
 
     graph() {}
 
@@ -71,10 +71,12 @@ public:
         edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value) {
         weighted = !std::is_same<ewT, void *>::value;
         manage = std::max(from_source, from_dest) > std::min(to_source, to_dest);
-        out_offset = FLAGS_dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
-        out_dest = FLAGS_dense_only ? nullptr : new uint32_t[edges]();
         in_offset = FLAGS_sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
+        in_degree = new uint32_t[to_dest - from_dest]();
         in_source = FLAGS_sparse_only ? nullptr : new uint32_t[edges]();
+        out_offset = FLAGS_dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
+        out_degree = new uint32_t[to_source - from_source]();
+        out_dest = FLAGS_dense_only ? nullptr : new uint32_t[edges]();
         if (weighted) {
             in_weight = FLAGS_sparse_only ? nullptr : new ewT[edges]();
             out_weight = FLAGS_dense_only ? nullptr : new ewT[edges]();
@@ -91,7 +93,9 @@ public:
 
     void read_csr(std::string in_path, std::string out_path) {
         read_csr_util(
-            in_path, out_path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
+            in_path, out_path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree,
             weighted, FLAGS_dense_only, FLAGS_sparse_only, to_source - from_source, to_dest - from_dest, edges
         );
     }
@@ -116,37 +120,39 @@ public:
 
     void begin(int round, int index) {
         uint32_t activated = 0;
-        uint32_t start_source = in_segment -> start_index;
-        uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
-        #pragma omp parallel for reduction(+:activated)
-        for (uint32_t v = start_source; v < end_source; v++) {
-            activated += begin_func(in_segment, v);
+        if (check_diagonal()) {
+            uint32_t start_source = in_segment -> start_index;
+            uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
+            #pragma omp parallel for reduction(+:activated)
+            for (uint32_t v = start_source; v < end_source; v++) {
+                activated += begin_func(this, v);
+            }
         }
         vote_object -> vec[0] = activated;
     }
 
-    void exec_sparse(uint32_t begin, uint32_t end) {
+    void exec_sparse(int round, uint32_t begin, uint32_t end) {
         uint32_t start_source = in_segment -> start_index;
         for (uint32_t v = begin; v < end; v++) {
             if (in_segment -> bm -> exist(v - start_source)) {
                 uint32_t *out_dst = out_dest + out_offset[v - from_source];
                 ewT *out_w = weighted ? out_weight + out_offset[v - from_source] : nullptr;
                 uint32_t out_d = out_offset[v + 1 - from_source] - out_offset[v - from_source];
-                sparse_func(in_segment, out_segment, v, out_dst, out_w, out_d);
+                sparse_func(this, round, v, out_dst, out_w, out_d);
             }
         }
     }
 
-    void exec_dense(uint32_t begin, uint32_t end) {
+    void exec_dense(int round, uint32_t begin, uint32_t end) {
         for (uint32_t v = begin; v < end; v++) {
             uint32_t *in_src = in_source + in_offset[v - from_dest];
             ewT *in_w = weighted ? in_weight + in_offset[v - from_dest] : nullptr;
             uint32_t in_d = in_offset[v + 1 - from_dest] - in_offset[v - from_dest];
-            dense_func(in_segment, out_segment, v, in_src, in_w, in_d);
+            dense_func(this, round, v, in_src, in_w, in_d);
         }
     }
 
-    void work_stealing(uint32_t start_v, uint32_t end_v, auto selected) {
+    void work_stealing(int round, uint32_t start_v, uint32_t end_v, auto selected) {
         uint32_t interval = end_v - start_v;
         std::vector<thread_state *> thread_states;
         for (int i = 0; i < (int)FLAGS_cores; i++) {
@@ -164,7 +170,7 @@ public:
                     break;
                 }
                 uint32_t end = begin + 64 > thread_states[index] -> end ? thread_states[index] -> end : begin + 64;
-                selected(begin, end);
+                selected(round, begin, end);
             }
             thread_states[index] -> state = STEALING;
             for (int offset = 1; offset < (int)FLAGS_cores; offset++) {
@@ -178,7 +184,7 @@ public:
                         break;
                     }
                     uint32_t end = begin + 64 > thread_states[new_index] -> end ? thread_states[new_index] -> end : begin + 64;
-                    selected(begin, end);
+                    selected(round, begin, end);
                 }
             }
         };
@@ -191,7 +197,7 @@ public:
         }
     }
 
-    void exec_each(int round, int index, vwT vertex_initial_value) {
+    void exec_each(int round, int index) {
         uint32_t active_edges = 0;
         in_segment -> print(round);
         if (!FLAGS_sparse_only && !FLAGS_dense_only) {
@@ -205,25 +211,23 @@ public:
             }
         }
         bool sparse = active_edges < edges / 20;
-        if (FLAGS_sparse_only || sparse) {
-            VLOG(1) << "running in sparse mode";
+        if (FLAGS_sparse_only || (!FLAGS_dense_only && sparse)) {
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             timer t;
             t.tick("sparse mode");
-            work_stealing(start_source, end_source, [this](uint32_t start, uint32_t end){
-                exec_sparse(start, end);
+            work_stealing(round, start_source, end_source, [this](int round, uint32_t start, uint32_t end){
+                exec_sparse(round, start, end);
             });
             t.from_tick();
         }
-        if (FLAGS_dense_only || !sparse) {
-            VLOG(1) << "running in dense mode";
+        if (FLAGS_dense_only || (!FLAGS_sparse_only && !sparse)) {
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;
             timer t;
             t.tick("dense mode");
-            work_stealing(start_dest, end_dest, [this](uint32_t start, uint32_t end){
-                exec_dense(start, end);
+            work_stealing(round, start_dest, end_dest, [this](int round, uint32_t start, uint32_t end){
+                exec_dense(round, start, end);
             });
             t.from_tick();
         }
@@ -242,7 +246,7 @@ public:
             #pragma omp parallel for schedule(dynamic, 1000)
             for (uint32_t v = start; v < end; v++) {
                 if (out_segment -> bm -> exist(v - start)) {
-                    reduce_func(in_segment, out_segment, v);
+                    reduce_func(this, round, v);
                 }
             }
             in_segment -> print(round);

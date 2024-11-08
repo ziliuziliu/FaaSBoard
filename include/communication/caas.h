@@ -215,7 +215,6 @@ public:
                 return;
             }
         }
-        timer t;
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
@@ -228,12 +227,8 @@ public:
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
-                    t.tick("recv_all");
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    t.from_tick();
-                    t.tick("reduce_adaptive_segment");
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
-                    t.from_tick();
                     delete [] segment.first;
                     break;
                 }
@@ -251,12 +246,8 @@ public:
                 }
                 case CAAS_MASKED_REDUCE: {
                     bool segment_type = caas_adaptive_segment<T>(this);
-                    t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    t.from_tick();
-                    t.tick("send_all");
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }
@@ -321,7 +312,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, boo
             if (index == 0xffffffff) {
                 break;
             }
-            segment[pos] = object -> vec[index];
+            segment[pos] = object -> data[5 + object -> bitmap_len + index];
             pos++;
         }
         return {(char *)segment, segment_len << 2};
@@ -333,7 +324,7 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
     bool segment_type = caas_segment_get_segment_type(segment[4]);
     if (segment_type == CAAS_DENSE) {
-        memcpy(object -> data, data, len);
+        memcpy((char *)object -> data, data, len);
     } else {
         memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
         uint32_t pos = 5 + object -> bitmap_len;
@@ -343,7 +334,7 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
             if (index == 0xffffffff) {
                 break;
             }
-            object -> vec[index] = segment[pos];
+            object -> data[5 + object -> bitmap_len + index] = segment[pos];
             pos++;
         }
     }

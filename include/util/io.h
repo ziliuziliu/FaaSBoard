@@ -33,8 +33,12 @@ void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t
 
 // w = (u + v) % 100
 template <class T>
-void read_txt_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
-    T *in_weight, T *out_weight, bool weighted, uint32_t total_v, uint32_t total_e) {
+void read_txt_util(
+    std::string path, 
+    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
+    bool weighted, uint32_t total_v, uint32_t total_e
+) {
     VLOG(1) << "start reading txt";
     FILE *txt_file = fopen(path.c_str(), "r");
     char *line = new char[100]; 
@@ -87,77 +91,67 @@ void read_txt_util(std::string path, uint32_t *in_offset, uint32_t *in_source, u
         out_offset[i] = out_offset[i - 1];
     }
     in_offset[0] = out_offset[0] = 0;
+    for (uint32_t i = 0; i < total_v; i++) {
+        in_degree[i] = in_offset[i + 1] - in_offset[i];
+        out_degree[i] = out_offset[i + 1] - out_offset[i];
+    }
     delete [] edge_buffer;
     delete [] mapping;
     VLOG(1) << "end reading txt";
 }
 
 template <class T>
-void save_metis_util(std::string path, uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, 
-    T *in_weight, T *out_weight, bool weighted, uint32_t total_v, uint32_t total_e) {
-    VLOG(1) << "start saving metis";
-    FILE *metis_file = fopen(path.c_str(), "w");
-    fprintf(metis_file, "%u %u\n", total_v, total_e);
-    for (uint32_t i = 0; i < total_v; i++) {
-        if (i % 1000000 == 0) {
-            VLOG(1) << "save " << i << " vertex";
-        }
-        for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
-            fprintf(metis_file, "%u ", in_source[j] + 1);
-        }
-        for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
-            fprintf(metis_file, "%u ", out_dest[j] + 1);
-        }
-        fprintf(metis_file, "\n");
-    }
-    fclose(metis_file);
-    VLOG(1) << "end saving metis";
-}
-
-template <class T>
 void read_csr_util(
-    std::string in_path, std::string out_path, 
-    uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, T *in_weight, T *out_weight, 
+    std::string in_path, std::string out_path,
+    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
     bool weighted, bool only_in, bool only_out, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
 ) {
     VLOG(1) << "start reading csr";
     size_t size;
+    FILE *in_csr_file = fopen(in_path.c_str(), "rb");
+    size = fread(in_degree, 4, out_vertex_cnt, in_csr_file);
+    CHECK(size == out_vertex_cnt) << "fread failed, read size " << size << " actual " << out_vertex_cnt;
     if (!only_out) {
-        FILE *in_csr_file = fopen(in_path.c_str(), "rb");
         size = fread(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
-        CHECK(size == out_vertex_cnt + 1) << "fread failed";
+        CHECK(size == out_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << out_vertex_cnt + 1;
         size = fread(in_source, 4, total_e, in_csr_file);
-        CHECK(size == total_e) << "fread failed";
+        CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         if (weighted) {
             size = fread(in_weight, sizeof(T), total_e, in_csr_file);
-            CHECK(size == total_e) << "fread failed";
+            CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         }
-        fclose(in_csr_file);
     }
+    fclose(in_csr_file);
+    FILE *out_csr_file = fopen(out_path.c_str(), "rb");
+    size = fread(out_degree, 4, in_vertex_cnt, out_csr_file);
+    CHECK(size == in_vertex_cnt) << "fread failed, read size " << size << " actual " << in_vertex_cnt;
     if (!only_in) {
-        FILE *out_csr_file = fopen(out_path.c_str(), "rb");
         size = fread(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
-        CHECK(size == in_vertex_cnt + 1) << "fread failed";
+        CHECK(size == in_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << in_vertex_cnt + 1;
         size = fread(out_dest, 4, total_e, out_csr_file);
-        CHECK(size == total_e) << "fread failed";
+        CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         if (weighted) {
             size = fread(out_weight, sizeof(T), total_e, out_csr_file);
-            CHECK(size == total_e) << "fread failed";
+            CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         }
-        fclose(out_csr_file);
     }
+    fclose(out_csr_file);
     VLOG(1) << "end reading csr";
 }
 
 template <class T>
 void save_csr_util(
     std::string in_path, std::string out_path, 
-    uint32_t *in_offset, uint32_t *in_source, uint32_t *out_offset, uint32_t *out_dest, T *in_weight, T *out_weight, 
+    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
     bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
 ) {
     VLOG(1) << "start saving csr";
     FILE *in_csr_file = fopen(in_path.c_str(), "wb");
     size_t size;
+    size = fwrite(in_degree, 4, out_vertex_cnt, in_csr_file);
+    CHECK(size == out_vertex_cnt) << "fwrite failed, read size " << size << " actual " << out_vertex_cnt;
     size = fwrite(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
     CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
     size = fwrite(in_source, 4, total_e, in_csr_file);
@@ -168,6 +162,8 @@ void save_csr_util(
     }
     fclose(in_csr_file);
     FILE *out_csr_file = fopen(out_path.c_str(), "wb");
+    size = fwrite(out_degree, 4, in_vertex_cnt, out_csr_file);
+    CHECK(size == in_vertex_cnt) << "fwrite failed, read size " << size << " actual " << in_vertex_cnt;
     size = fwrite(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
     CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
     size = fwrite(out_dest, 4, total_e, out_csr_file);

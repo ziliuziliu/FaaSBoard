@@ -159,7 +159,6 @@ void work(int thread_id) {
         uint32_t request_id = data[0], object_id = data[1], flag = data[4];
         segment_base *segment;
         segment = segment_table[request_id][object_id];
-        timer t;
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_MASKED_BROADCAST:
                 VLOG(1) << "masked broadcast from request " << request_id 
@@ -179,18 +178,12 @@ void work(int thread_id) {
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
                 }
-                t.tick("reduce_adaptive_segment");
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
-                t.from_tick();
                 if (segment -> cnt == (int)segment -> fds.size()) {
                     bool segment_type = segment -> adaptive_segment();
-                    t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
-                    t.from_tick();
-                    t.tick("send_all");
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] new_data.first;
                     }

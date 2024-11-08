@@ -338,9 +338,9 @@ public:
                 save_csr_util(
                     root_dir / std::to_string(i) / std::string("graph" + std::to_string(j) + ".csr.in"),
                     root_dir / std::to_string(i) / std::string("graph" + std::to_string(j) + ".csr.out"),
-                    graph -> in_offset, graph -> in_source, graph -> out_offset, graph -> out_dest, 
-                    graph -> in_weight, graph -> out_weight, graph -> weighted, 
-                    graph -> to_source - graph -> from_source, graph -> to_dest - graph -> from_dest, 
+                    graph -> in_offset, graph -> in_source, graph -> in_weight, graph -> in_degree,
+                    graph -> out_offset, graph -> out_dest, graph -> out_weight, graph -> out_degree,
+                    graph -> weighted, graph -> to_source - graph -> from_source, graph -> to_dest - graph -> from_dest, 
                     graph -> edges
                 );
             }
