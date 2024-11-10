@@ -54,6 +54,11 @@ struct bitmap {
         __sync_fetch_and_add(size, 1);
     }
 
+    void fill() {
+        memset(m + 1, 0xff, (length >> 3) - 4);
+        m[0] = length - 32;
+    }
+
     void clear() {
         memset(m, 0, length >> 3);
     }

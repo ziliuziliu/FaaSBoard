@@ -190,6 +190,7 @@ void work(int thread_id) {
                     segment -> reset();
                 }
                 segment -> m.unlock();
+                delete [] raw_data.first;
                 break;
             case CAAS_ALLREDUCE:
                 VLOG(1) << "all reduce from request " << request_id 

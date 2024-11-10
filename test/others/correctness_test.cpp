@@ -109,10 +109,9 @@ void check_equal(uint32_t total_v, T *vec1, T *vec2) {
 }
 
 template <class T>
-void check_error(uint32_t total_v, T *vec1, T *vec2) {
-    double eps = 1e-2;
+void check_error(uint32_t total_v, T *vec1, T *vec2, double error_rate) {
     for (uint32_t i = 0; i < total_v; i++) {
-        CHECK(std::abs((double)vec1[i] - (double)vec2[i]) <= eps) << "vertex " << i << " correct " << vec1[i] << " result " << vec2[i];
+        CHECK(std::abs((double)vec1[i] - (double)vec2[i]) / vec1[i] <= error_rate) << "vertex " << i << " correct " << vec1[i] << " result " << vec2[i];
     }
 }
 
@@ -129,7 +128,7 @@ int main(int argc, char *argv[]) {
     } else if (FLAGS_application == "pr") {
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
         float *pr2 = read_result<float>(FLAGS_graph_root_dir, FLAGS_vertices);
-        check_error<float>(FLAGS_vertices, pr1, pr2);
+        check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
     }
     VLOG(1) << "Freshness Check (<=30min) Passed";   
     VLOG(1) << "Correctness Check Passed";

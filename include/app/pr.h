@@ -36,7 +36,9 @@ void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int 
                 uint32_t dst = out_dst[i];
                 float *dst_addr = out_seg -> vec + (dst - out_seg -> start_index);
                 while (!cas<float>(dst_addr, *dst_addr, *dst_addr + *src_addr));
-                out_seg -> bm -> add(dst - out_seg -> start_index);
+            }
+            if (src == in_seg -> start_index) {
+                out_seg -> bm -> fill();
             }
         }
     );
@@ -49,7 +51,9 @@ void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int 
                 float *src_addr = in_seg -> vec + (src - in_seg -> start_index);
                 *dst_addr += *src_addr;
             }
-            out_seg -> bm -> add(dst - out_seg -> start_index);
+            if (dst == out_seg -> start_index) {
+                out_seg -> bm -> fill();
+            }
         }
     );
     graphs -> set_reduce_func(
@@ -61,6 +65,9 @@ void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int 
             if (round != iterations) {
                 uint32_t out_degree = g -> out_degree[v - g -> from_source];
                 *in_addr = out_degree > 0 ? *in_addr / out_degree : *in_addr;
+            }
+            if (v == in_seg -> start_index) {
+                in_seg -> bm -> fill();
             }
         }
     );
