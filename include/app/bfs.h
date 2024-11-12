@@ -12,12 +12,12 @@
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
-void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t root) {
+void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
-        graphs = new graph_set<uint32_t, empty>(graph_dir, CAAS_UP, 0xffffffff);
+        graphs = new graph_set<uint32_t, empty>(CAAS_UP, 0xffffffff, config);
     }
     graphs -> set_begin_func(
         [root](graph<uint32_t, empty> *g, uint32_t v){
@@ -76,7 +76,7 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
     );
     graphs -> connect(request_id);
     graphs -> begin(0);
-    if (!no_pipeline) {
+    if (!config -> no_pipeline) {
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
             uint32_t activated = graphs -> vote();
@@ -109,7 +109,7 @@ void bfs(std::string graph_dir, uint32_t request_id, bool no_pipeline, uint32_t 
     graphs -> disconnect();
     t.from_start("overall");
     t.tick("save_result");
-    graphs -> save_result(graph_dir);
+    graphs -> save_result(config -> save_mode, config -> graph_dir);
     t.from_tick();
 }
 

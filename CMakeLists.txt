@@ -10,7 +10,7 @@ project(faasboard CXX)
 
 # Find OpenMP
 find_package(OpenMP)
-# find_package(aws-lambda-runtime)
+find_package(aws-lambda-runtime)
 find_package(glog REQUIRED)
 find_package(gflags REQUIRED)
 
@@ -30,19 +30,24 @@ add_definitions("-Wall -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambd
 
 # Create an executable target
 add_executable(preprocess_and_save ${CMAKE_SOURCE_DIR}/test/preprocess/preprocess_and_save.cpp)
-add_executable(test_bfs ${CMAKE_SOURCE_DIR}/test/test_bfs.cpp)
-add_executable(test_pr ${CMAKE_SOURCE_DIR}/test/test_pr.cpp)
+add_executable(local_bfs ${CMAKE_SOURCE_DIR}/test/local_bfs.cpp)
+add_executable(local_pr ${CMAKE_SOURCE_DIR}/test/local_pr.cpp)
+add_executable(lambda_bfs ${CMAKE_SOURCE_DIR}/test/lambda_bfs.cpp)
+add_executable(lambda_pr ${CMAKE_SOURCE_DIR}/test/lambda_pr.cpp)
 add_executable(meta_server ${CMAKE_SOURCE_DIR}/test/meta_server.cpp)
 add_executable(proxy_server ${CMAKE_SOURCE_DIR}/test/proxy_server.cpp)
 add_executable(correctness_test ${CMAKE_SOURCE_DIR}/test/others/correctness_test.cpp)
 
 # Link
 target_link_libraries(preprocess_and_save PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(test_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(test_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+target_link_libraries(local_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+target_link_libraries(local_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+target_link_libraries(lambda_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime)
+target_link_libraries(lambda_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime)
 target_link_libraries(meta_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 target_link_libraries(proxy_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 target_link_libraries(correctness_test PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 
 # create zip
-# aws_lambda_package_target(cpu_test)
+aws_lambda_package_target(lambda_bfs)
+aws_lambda_package_target(lambda_pr)

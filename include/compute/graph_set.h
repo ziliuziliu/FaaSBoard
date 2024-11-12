@@ -24,11 +24,13 @@ public:
     std::unordered_map<uint32_t, comm_object<vwT> *> in_segments, out_segments;
     std::mutex segment_table_m;
     vwT base_vertex_value;
+    exec_config *config;
 
-    graph_set(std::string graph_dir, uint8_t reduce_op, vwT base_vertex_value):base_vertex_value(base_vertex_value) {
-        std::ifstream meta_file(graph_dir + "/graphs.meta");
+    graph_set(uint8_t reduce_op, vwT base_vertex_value, exec_config *config)
+        :base_vertex_value(base_vertex_value), config(config) {
+        std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
-            LOG(FATAL) << "could not open the file " << graph_dir + "/graphs.meta";
+            LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta";
         }
         std::stringstream meta_buffer;
         meta_buffer << meta_file.rdbuf();
@@ -42,13 +44,13 @@ public:
             json item = metadata["graphs"][i];
             graph<vwT, ewT> *newgraph = new graph<vwT, ewT>(
                 i, meta, item["from_source"], item["to_source"], item["from_dest"], item["to_dest"], 
-                item["edges"], reduce_op, base_vertex_value
+                item["edges"], reduce_op, base_vertex_value, config
             );
             newgraph -> read_csr(
-                graph_dir + "/graph" + std::to_string(i) + ".csr.in",
-                graph_dir + "/graph" + std::to_string(i) + ".csr.out"
+                config -> graph_dir + "/graph" + std::to_string(i) + ".csr.in",
+                config -> graph_dir + "/graph" + std::to_string(i) + ".csr.out"
             );
-            auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value);
+            auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value, config);
             comm_object<vwT> *in_segment = std::get<0>(objects);
             comm_object<vwT> *out_segment = std::get<1>(objects);
             comm_object<uint32_t> *vote_object = std::get<2>(objects);
@@ -62,12 +64,14 @@ public:
         }
     }
 
-    std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(json meta, uint8_t reduce_op, vwT base_vertex_value) {
+    std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(
+        json meta, uint8_t reduce_op, vwT base_vertex_value, exec_config *config
+    ) {
         comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
         comm_object<uint32_t> *vote_object = nullptr;
         uint8_t comm_type = meta["comm_type"];
-        std::string meta_server_addr = meta["meta_server_addr"];
-        int meta_server_port = meta["meta_server_port"];
+        std::string meta_server_addr = config -> meta_server_addr;
+        int meta_server_port = 20000;
         json recv = meta["recv"];
         CHECK(recv.size() == 1) << "have to be just 1 in segment";
         for (int i = 0; i < (int)recv.size(); i++) {
@@ -167,7 +171,7 @@ public:
     }
 
     void begin(int round) {
-        omp_set_num_threads(FLAGS_cores);
+        omp_set_num_threads(config -> cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " vertex initialize";
             graphs[i] -> begin(round, i);
@@ -216,7 +220,7 @@ public:
     }
 
     void exec_each(int round) {
-        omp_set_num_threads(FLAGS_cores);
+        omp_set_num_threads(config -> cores);
         exec_each_initialize();
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec block";
@@ -225,7 +229,7 @@ public:
     }
 
     void exec_diagonal(int round) {
-        omp_set_num_threads(FLAGS_cores);
+        omp_set_num_threads(config -> cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec diagonal";
             graphs[i] -> exec_diagonal(round, i);
@@ -233,7 +237,7 @@ public:
     }
 
     void pipeline_run(int round) {
-        omp_set_num_threads(FLAGS_cores);
+        omp_set_num_threads(config -> cores);
         exec_each_initialize();
         std::string info_prefix = "round " + std::to_string(round) + " ";
         int graph_cnt = graphs.size();
@@ -299,10 +303,18 @@ public:
         return activated;
     }
 
-    void save_result(std::string graph_dir) {
-        for (int i = 0; i < (int)graphs.size(); i++) {
-            VLOG(1) << "graph " << i << " save result";
-            graphs[i] -> save_result(graph_dir + "/result" + std::to_string(i) + ".txt");
+    void save_result(int save_mode, std::string local_dir) {
+        switch (save_mode) {
+            case CAAS_NO_SAVE:
+                break;
+            case CAAS_SAVE_LOCAL:
+                for (int i = 0; i < (int)graphs.size(); i++) {
+                    VLOG(1) << "graph " << i << " save result";
+                    graphs[i] -> save_local(local_dir + "/result" + std::to_string(i) + ".txt");
+                }
+                break;
+            default:
+                LOG(FATAL) << "save mode " << save_mode << " not implemented";
         }
     }
 
