@@ -19,7 +19,7 @@ int main(int argc, char *argv[]) {
 
     partition_result result;
     std::vector<graph_set<empty> *> graphsets;
-    int total_block = 4, cut;
+    int total_block = FLAGS_partitions, cut;
 
     VLOG(1) << "optimal cut + binpack";
     cut = sqrt((double)total_block) + 1;

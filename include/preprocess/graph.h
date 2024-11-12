@@ -30,7 +30,7 @@ public:
     graph_meta meta;
     bool weighted;
     uint32_t from_source, to_source, from_dest, to_dest, edges;
-    uint32_t *in_offset, *in_source, *out_offset, *out_dest;
+    uint32_t *in_offset, *in_source, *out_offset, *out_dest, *in_degree, *out_degree;
     ewT *in_weight, *out_weight;
 
     graph() {}
@@ -41,10 +41,12 @@ public:
                                  edges(block.edges) {
         id = rand();
         weighted = !std::is_same<ewT, void *>::value;
-        out_offset = new uint32_t[to_source - from_source + 1]();
-        out_dest = new uint32_t[block.edges]();
         in_offset = new uint32_t[to_dest - from_dest + 1]();
+        in_degree = new uint32_t[to_dest - from_dest]();
         in_source = new uint32_t[block.edges]();
+        out_offset = new uint32_t[to_source - from_source + 1]();
+        out_degree = new uint32_t[to_source - from_source]();
+        out_dest = new uint32_t[block.edges]();
         if (weighted) {
             in_weight = new ewT[block.edges]();
             out_weight = new ewT[block.edges]();
@@ -108,6 +110,14 @@ public:
                 in_offset[i - from_dest] = in_offset[i - 1 - from_dest];
             in_offset[0] = 0;
         }
+    }
+
+    void set_in_degree(uint32_t *in_degree) {
+        memcpy(this -> in_degree, in_degree, (to_dest - from_dest) << 2);
+    }
+
+    void set_out_degree(uint32_t *out_degree) {
+        memcpy(this -> out_degree, out_degree, (to_source - from_source) << 2);
     }
 
     std::tuple<uint32_t *, ewT *, uint32_t> in_edge(uint32_t v) {

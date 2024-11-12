@@ -16,6 +16,7 @@ using reduce_uint32_f_single = std::function<uint32_t(uint32_t, uint32_t)>;
 using reduce_int_f_single = std::function<int(int, int)>;
 using reduce_float_f_single = std::function<float(float, float)>;
 using reduce_uint32_f_avx_masked = std::function<void(uint32_t *, uint32_t *, uint8_t *, uint32_t)>;
+using reduce_float_f_avx_masked = std::function<void(float *, float *, uint8_t *, uint32_t)>;
 
 reduce_uint32_f_single get_reduce_func_uint32_single(uint8_t reduce_op) {
     switch (reduce_op) {
@@ -72,17 +73,6 @@ reduce_float_f_single get_reduce_func_float_single(uint8_t reduce_op) {
     }
 }
 
-void print_m256i_bits(__m256i vec) {
-    // Store the contents of the __m256i register into a 32-byte array
-    alignas(32) uint32_t elements[8];
-    _mm256_storeu_si256((__m256i*)elements, vec);
-
-    // Print each element's bits
-    for (int i = 0; i < 8; ++i) {
-        std::cout << "Element " << i << ": " << std::bitset<32>(elements[i]) << "\n";
-    }
-}
-
 reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) {
     switch (reduce_op) {
         case CAAS_UP:
@@ -114,6 +104,24 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) 
                     _mm256_storeu_si256((__m256i *)&a[i], cc);
                     int change = _mm256_movemask_ps(_mm256_castsi256_ps(mask));
                     *bm |= (uint8_t)change;
+                    bm++;
+                }
+            });
+        default:
+            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+    }
+}
+
+reduce_float_f_avx_masked get_reduce_func_float_avx_masked(uint8_t reduce_op) {
+    switch (reduce_op) {
+        case CAAS_ADD:
+            return reduce_float_f_avx_masked([](float *a, float *b, uint8_t *bm, uint32_t len){
+                for (uint32_t i = 0; i < len; i += 8) {
+                    __m256 aa = _mm256_loadu_ps(&a[i]);
+                    __m256 bb = _mm256_loadu_ps(&b[i]);
+                    __m256 cc = _mm256_add_ps(aa, bb);
+                    _mm256_storeu_ps(&a[i], cc);
+                    *bm |= 0xff;
                     bm++;
                 }
             });
@@ -198,16 +206,9 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
             break;
         }
         case CAAS_FLOAT: {
-            reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
-            float *aa = (float *)a, *bb = (float *)b;
-            #pragma omp parallel for
-            for (uint32_t i = 0; i < len; i++) {
-                float new_val = f(aa[i], bb[i]);
-                if (new_val != aa[i]) {
-                    a_bm -> add(i);
-                }
-                aa[i] = new_val;
-            }
+            reduce_float_f_avx_masked f = get_reduce_func_float_avx_masked(reduce_op);
+            f((float *)a, (float *)b, (uint8_t *)(a_bm -> m + 1), len);
+            a_bm -> refresh_size();
             break;
         }
         default:

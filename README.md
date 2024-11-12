@@ -63,10 +63,10 @@ Enter the build directory and run the preprocess program firstly to handle the r
 # Enter running directory
 cd build
 # Start preprocessing
-./preprocess_and_save -graph_file ../original/soc-LiveJournal1.txt -graph_root_dir ../data/livejournal -vertices 4847571 -edges 68993773 --v 1
+./preprocess_and_save -graph_file ../original/soc-LiveJournal1.txt -graph_root_dir ../data/livejournal -vertices 4847571 -edges 68993773 -partitions 4 --v 1
 ```
 
-Once preprocessing ends, run the server program to set up the meta and proxy:
+Once preprocessing ends, run the server program to set up the meta server and proxy server:
 
 ```bash
 # Meta server is the worker storing the data

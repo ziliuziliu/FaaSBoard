@@ -23,8 +23,9 @@ public:
     std::vector<graph<vwT, ewT> *> graphs;
     std::unordered_map<uint32_t, comm_object<vwT> *> in_segments, out_segments;
     std::mutex segment_table_m;
+    vwT base_vertex_value;
 
-    graph_set(std::string graph_dir, uint8_t reduce_op, vwT base_vertex_value) {
+    graph_set(std::string graph_dir, uint8_t reduce_op, vwT base_vertex_value):base_vertex_value(base_vertex_value) {
         std::ifstream meta_file(graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << graph_dir + "/graphs.meta";
@@ -43,11 +44,14 @@ public:
                 i, meta, item["from_source"], item["to_source"], item["from_dest"], item["to_dest"], 
                 item["edges"], reduce_op, base_vertex_value
             );
-            newgraph -> read_csr(graph_dir + "/graph" + std::to_string(i) + ".csr");
+            newgraph -> read_csr(
+                graph_dir + "/graph" + std::to_string(i) + ".csr.in",
+                graph_dir + "/graph" + std::to_string(i) + ".csr.out"
+            );
             auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value);
             comm_object<vwT> *in_segment = std::get<0>(objects);
             comm_object<vwT> *out_segment = std::get<1>(objects);
-            comm_object<vwT> *vote_object = std::get<2>(objects);
+            comm_object<uint32_t> *vote_object = std::get<2>(objects);
             newgraph -> set_comm_object(in_segment, out_segment, vote_object);
             #pragma omp critical 
             {
@@ -59,7 +63,8 @@ public:
     }
 
     std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(json meta, uint8_t reduce_op, vwT base_vertex_value) {
-        comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr, *vote_object = nullptr;
+        comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
+        comm_object<uint32_t> *vote_object = nullptr;
         uint8_t comm_type = meta["comm_type"];
         std::string meta_server_addr = meta["meta_server_addr"];
         int meta_server_port = meta["meta_server_port"];
@@ -199,23 +204,23 @@ public:
         }
     }
 
-    void exec_each_initialize(vwT vertex_initial_value) {
+    void exec_each_initialize() {
         for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
             comm_object<vwT> *out_segment = it -> second;
             out_segment -> bm -> clear();
             out_segment -> finish = 0;
             #pragma omp parallel for
             for (uint32_t i = 0; i < out_segment -> vec_len; i++)
-                out_segment -> vec[i] = vertex_initial_value;
+                out_segment -> vec[i] = base_vertex_value;
         }
     }
 
-    void exec_each(int round, vwT vertex_initial_value) {
+    void exec_each(int round) {
         omp_set_num_threads(FLAGS_cores);
-        exec_each_initialize(vertex_initial_value);
+        exec_each_initialize();
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec block";
-            graphs[i] -> exec_each(round, i, vertex_initial_value);
+            graphs[i] -> exec_each(round, i);
         }
     }
 
@@ -227,9 +232,9 @@ public:
         }
     }
 
-    void pipeline_run(int round, vwT vertex_initial_value) {
+    void pipeline_run(int round) {
         omp_set_num_threads(FLAGS_cores);
-        exec_each_initialize(vertex_initial_value);
+        exec_each_initialize();
         std::string info_prefix = "round " + std::to_string(round) + " ";
         int graph_cnt = graphs.size();
         moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt), exec_diagonal_queue(graph_cnt);
@@ -258,7 +263,7 @@ public:
                 int index;
                 exec_each_queue.wait_dequeue(index);
                 VLOG(1) << "graph " << index << " exec block";
-                graphs[index] -> exec_each(round, index, vertex_initial_value);
+                graphs[index] -> exec_each(round, index);
                 graphs[index] -> out_segment -> finish++;
                 if (graphs[index] -> out_segment -> finish == graphs[index] -> out_segment -> colocated_member) {
                     out_threads.push_back(std::thread(out_function, graphs[index] -> out_segment));

@@ -223,7 +223,6 @@ public:
                 return;
             }
         }
-        timer t;
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
@@ -236,12 +235,8 @@ public:
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
-                    t.tick("recv_all");
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    t.from_tick();
-                    t.tick("reduce_adaptive_segment");
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
-                    t.from_tick();
                     delete [] segment.first;
                     break;
                 }
@@ -259,12 +254,8 @@ public:
                 }
                 case CAAS_MASKED_REDUCE: {
                     bool segment_type = caas_adaptive_segment<T>(this);
-                    t.tick("make_adaptive_segment");
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    t.from_tick();
-                    t.tick("send_all");
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    t.from_tick();
                     if (segment_type == CAAS_SPARSE) {
                         delete [] segment.first;
                     }

@@ -24,7 +24,7 @@ public:
 
     graph_meta meta;
     bool weighted;
-    uint32_t *in_offset, *in_source, *out_offset, *out_dest;
+    uint32_t *in_offset, *in_source, *out_offset, *out_dest, *in_degree, *out_degree;
     ewT *in_weight, *out_weight;
 
     raw_graph() {}
@@ -32,29 +32,43 @@ public:
     raw_graph(uint32_t total_v, uint32_t total_e) {
         meta = graph_meta(total_v, total_e);
         weighted = !std::is_same<ewT, void *>::value;
-        in_offset = new uint32_t[meta.total_v + 1]{};
-        in_source = new uint32_t[meta.total_e]{};
-        out_offset = new uint32_t[meta.total_v + 1]{};
-        out_dest = new uint32_t[meta.total_e]{};
+        in_offset = new uint32_t[meta.total_v + 1]();
+        in_source = new uint32_t[meta.total_e]();
+        in_degree = new uint32_t[meta.total_v]();
+        out_offset = new uint32_t[meta.total_v + 1]();
+        out_dest = new uint32_t[meta.total_e]();
+        out_degree = new uint32_t[meta.total_v]();
         if (weighted) {
-            in_weight = new ewT[meta.total_e]{};
-            out_weight = new ewT[meta.total_e]{};
+            in_weight = new ewT[meta.total_e]();
+            out_weight = new ewT[meta.total_e]();
         }
     }
 
     void read_txt(std::string path) {
-        read_txt_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, meta.total_v, meta.total_e);
+        read_txt_util<ewT>(
+            path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree, 
+            weighted, meta.total_v, meta.total_e
+        );
     }
 
-    void read_csr(std::string path) {
-        read_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, meta.total_v, meta.total_v, meta.total_e);
+    void read_csr(std::string in_path, std::string out_path) {
+        read_csr_util<ewT>(
+            in_path, out_path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree, 
+            weighted, false, false, meta.total_v, meta.total_v, meta.total_e
+        );
     }
 
-    void save_csr(std::string path) {
-        save_csr_util<ewT>(path, in_offset, in_source, out_offset, out_dest, in_weight, out_weight, 
-            weighted, meta.total_v, meta.total_v, meta.total_e);
+    void save_csr(std::string in_path, std::string out_path) {
+        save_csr_util<ewT>(
+            in_path, out_path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree, 
+            weighted, meta.total_v, meta.total_v, meta.total_e
+        );
     }
 
     partition_result row_partition(int total_block) {
@@ -344,6 +358,10 @@ public:
                 }
             }
             subgraph -> end_add_edge(OUTGOING);
+        }
+        for (int i = 0; i < (int)subgraphs.size(); i++) {
+            subgraphs[i] -> set_in_degree(in_degree + subgraphs[i] -> from_dest);
+            subgraphs[i] -> set_out_degree(out_degree + subgraphs[i] -> from_source);
         }
         for (int i = 0; i < (int)subgraphs.size(); i++) {
             subgraphs[i] -> check();
