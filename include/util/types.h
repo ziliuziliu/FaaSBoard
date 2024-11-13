@@ -23,8 +23,12 @@
 #define CAAS_S3 1
 #define CAAS_DIRECT 2
 
-#define CAAS_DENSE 0
-#define CAAS_SPARSE 1
+enum class COMM_TYPE : int {
+    CAAS_MAGIC = 0,
+    CAAS_PAIR = 1,
+    CAAS_SPARSE = 2,
+    CAAS_DENSE = 3,
+};
 
 #define CAAS_FD_NOTINQUEUE 0
 #define CAAS_FD_INQUEUE 1

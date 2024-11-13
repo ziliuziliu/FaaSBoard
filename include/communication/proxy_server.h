@@ -76,8 +76,15 @@ public:
         return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
     }
 
-    bool adaptive_segment() {
-        return bm -> get_size() <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
+    COMM_TYPE adaptive_segment() {
+        uint32_t seg_sz = bm -> get_size();
+        if (seg_sz== 0) {
+            return COMM_TYPE::CAAS_MAGIC;
+        } else if (seg_sz <= CAAS_SPARSE_LIMIT) {
+            return (seg_sz <= CAAS_SPARSE_PAIR_THRESHOLD) ? COMM_TYPE::CAAS_PAIR : COMM_TYPE::CAAS_SPARSE;
+        } else {
+            return COMM_TYPE::CAAS_DENSE;
+        }
     }
 
     void initialize(uint32_t *header) {
@@ -85,22 +92,20 @@ public:
         initialized = true;
     }
 
-    std::pair<char *, size_t> make_adaptive_segment(bool segment_type) {
+    std::pair<char *, size_t> make_adaptive_segment(COMM_TYPE segment_type) {
+        // Set segment type
         caas_segment_set_segment_type(data + 4, segment_type);
-        // Return 0xffffffff if the communication object has no data
-        if (this->bitmap_len == 0) {
-            uint32_t *seg_pairs = new uint32_t[1];
-            *seg_pairs = 0xffffffff;
-            return {(char*)seg_pairs, 4};
-        }
-        // Check if the segment should be index-value pairs
-        bool is_pair = (bm -> get_size() <= CAAS_SPARSE_PAIR_THRESHOLD);
-        caas_segment_set_is_pair(data + 4, is_pair);
-        // Construct the segment
-        if (segment_type == CAAS_DENSE) {
-            return {(char *)data, (5 + bitmap_len + vec_len) << 2};
-        } else {
-            if (is_pair) {
+
+        switch(segment_type) {
+            case COMM_TYPE::CAAS_MAGIC: {
+                // Return 0xffffffff if the communication object has no data
+                uint32_t *seg_pairs = new uint32_t[1];
+                *seg_pairs = 0xffffffff;
+                return {(char*)seg_pairs, 4};
+            }
+
+            case COMM_TYPE::CAAS_PAIR: {
+                // Construct sparse segment with only index-value pairs whose value is not zero
                 uint32_t segment_len = 5 + bm -> get_size() * 2;
                 uint32_t *segment = new uint32_t[segment_len];
                 memcpy(segment, data, 20);
@@ -116,7 +121,9 @@ public:
                     pos += 2;
                 }
                 return {(char *)segment, pos << 2};
-            } else {
+            }
+
+            case COMM_TYPE::CAAS_SPARSE: {
                 uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
                 uint32_t *segment = new uint32_t[segment_len];
                 uint32_t pos = 5 + bitmap_len;
@@ -132,32 +139,48 @@ public:
                 }
                 return {(char *)segment, segment_len << 2};
             }
+
+            case COMM_TYPE::CAAS_DENSE: {
+                return {(char *)data, (5 + bitmap_len + vec_len) << 2};
+            }
         }
     }
 
     void reduce_adaptive_segment(char *raw_data, size_t len) {
         uint32_t *segment = (uint32_t *)raw_data;
+        COMM_TYPE segment_type;
         if (len == 4 && *segment == 0xffffffff) {
-            return;
+            segment_type = COMM_TYPE::CAAS_MAGIC;
         }
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
-        bool segment_type = caas_segment_get_segment_type(flag);
-        bool is_pair = caas_segment_get_is_pair(flag);
+        segment_type = caas_segment_get_segment_type(flag);
         uint8_t data_type = caas_flag_get_data_type(flag);
         uint8_t reduce_op = caas_flag_get_reduce_op(flag);
-        if (segment_type == CAAS_DENSE) {
-            VLOG(1) << "reduce dense";
-            reduce_adaptive_segment_m.lock();
-            reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
-            reduce_adaptive_segment_m.unlock();
-        } else {
-            if (is_pair) {
+
+        switch(segment_type) {
+            case COMM_TYPE::CAAS_MAGIC: {
+                return;
+            }
+
+            case COMM_TYPE::CAAS_PAIR: {
                 VLOG(1) << "reduce sparse pair";
                 reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
-            } else {
+                break;
+            }
+
+            case COMM_TYPE::CAAS_SPARSE: {
                 VLOG(1) << "reduce sparse";
                 bitmap *segment_bm = new bitmap(vec_len, segment + 5);
                 reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
+                break;
+            }
+
+            case COMM_TYPE::CAAS_DENSE: {
+                VLOG(1) << "reduce dense";
+                reduce_adaptive_segment_m.lock();
+                reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
+                reduce_adaptive_segment_m.unlock();
+                break;
             }
         }
     }
@@ -218,10 +241,10 @@ void work(int thread_id) {
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
                 if (segment -> cnt == (int)segment -> fds.size()) {
-                    bool segment_type = segment -> adaptive_segment();
+                    COMM_TYPE segment_type = segment -> adaptive_segment();
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    if (segment_type == CAAS_SPARSE) {
+                    if (segment_type == COMM_TYPE::CAAS_SPARSE) {
                         delete [] new_data.first;
                     }
                     segment -> reset();
