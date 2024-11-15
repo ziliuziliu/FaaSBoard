@@ -98,10 +98,10 @@ public:
 
         switch(segment_type) {
             case COMM_TYPE::CAAS_MAGIC: {
-                // Return 0xffffffff if the communication object has no data
-                uint32_t *seg_pairs = new uint32_t[1];
-                *seg_pairs = 0xffffffff;
-                return {(char*)seg_pairs, 4};
+                uint32_t seg_pairs_len = 5;
+                uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
+                memcpy(seg_pairs, data, 20); // 20 is the size of the first 5 elements
+                return {(char *)seg_pairs, 5 << 2};
             }
 
             case COMM_TYPE::CAAS_PAIR: {
@@ -143,17 +143,17 @@ public:
             case COMM_TYPE::CAAS_DENSE: {
                 return {(char *)data, (5 + bitmap_len + vec_len) << 2};
             }
+
+            default: {
+                LOG(FATAL) << "undefined segment type " << (int)segment_type;
+            }
         }
     }
 
     void reduce_adaptive_segment(char *raw_data, size_t len) {
         uint32_t *segment = (uint32_t *)raw_data;
-        COMM_TYPE segment_type;
-        if (len == 4 && *segment == 0xffffffff) {
-            segment_type = COMM_TYPE::CAAS_MAGIC;
-        }
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
-        segment_type = caas_segment_get_segment_type(flag);
+        COMM_TYPE segment_type = caas_segment_get_segment_type(flag);
         uint8_t data_type = caas_flag_get_data_type(flag);
         uint8_t reduce_op = caas_flag_get_reduce_op(flag);
 
@@ -181,6 +181,10 @@ public:
                 reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
                 reduce_adaptive_segment_m.unlock();
                 break;
+            }
+
+            default: {
+                LOG(FATAL) << "undefined segment type " << (int)segment_type;
             }
         }
     }
