@@ -30,7 +30,7 @@ public:
         :base_vertex_value(base_vertex_value), config(config) {
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
-            LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta";
+            LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
         }
         std::stringstream meta_buffer;
         meta_buffer << meta_file.rdbuf();

@@ -1,4 +1,6 @@
 #include "app/pr.h"
+#include "util/log.h"
+#include "util/flags.h"
 #include "util/json.h"
 
 #include <aws/lambda-runtime/runtime.h>
@@ -25,7 +27,11 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     return lambda::invocation_response::success("pagerank success", "application/json");
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    google::InitGoogleLogging(argv[0]);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    FLAGS_logtostderr = 1;
+    FLAGS_v = 1;
     run_handler(my_handler);
     return 0;
 }

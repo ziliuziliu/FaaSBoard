@@ -1,4 +1,6 @@
 #include "app/bfs.h"
+#include "util/log.h"
+#include "util/flags.h"
 #include "util/json.h"
 
 #include <aws/lambda-runtime/runtime.h>
@@ -7,8 +9,11 @@ using json = nlohmann::json;
 namespace lambda = aws::lambda_runtime;
 
 static lambda::invocation_response my_handler(lambda::invocation_request const& req) {
-    json payload = json::parse(req.payload);
-    json request = json::parse(std::string(payload["body"]));
+    VLOG(1) << "payload " << req.payload;
+    if (req.payload == "\"ping\"") {
+        return lambda::invocation_response::success("pong", "application/json");
+    }
+    json request = json::parse(req.payload);
     std::string graph_dir = request["graph_dir"];
     std::string meta_server_addr = request["meta_server"];
     uint32_t cores = request["cores"];
@@ -25,7 +30,11 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     return lambda::invocation_response::success("bfs success", "application/json");
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    google::InitGoogleLogging(argv[0]);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    FLAGS_logtostderr = 1;
+    FLAGS_v = 1;
     run_handler(my_handler);
     return 0;
 }

@@ -1,52 +1,70 @@
+## RUN WITH SUDO!!!
+
 import os
 import argparse
+import json
+import time
 
-# object_name = 'fs_test.zip'
-# function_name = 'fs_test'
-# s3_client.upload_file('../build/{}'.format(object_name), 'ziliuziliu', object_name)
-# os.system('aws lambda update-function-code --function-name {} --s3-bucket ziliuziliu --s3-key {}'.format(function_name, object_name))
+TEMP_DIR = '../build/temp'
 
-TEMP_DIR = '/data/temp'
-ROLE_ARN = 'arn:aws:iam::602675752686:role/lambda-all-allow'
-S3_BUCKET = 'ziliuziliu'
-VPC_SUBNET_IDS = 'subnet-01a7209fc67399ade,subnet-01a2568a77d38c598,subnet-05e10c495f9ba6bcf'
-VPC_SECURITY_GROUP_IDS = 'sg-07d915f6ecaa671ad'
-REGION = 'ap-southeast-1'
-
-def build_function(args, index):
-    # cwd = os.getcwd()
-    # print('====== Build For {} {} ======'.format(args.function_name, index))
-    # print('====== Extracting Zip ======')
-    # os.system('rm -rf {}'.format(TEMP_DIR))
-    # os.system('mkdir -p {}'.format(TEMP_DIR))
-    # os.system('unzip ../build/{}.zip -d {}'.format(args.function_name, TEMP_DIR))
-    # print('====== Copying CSR ======')
-    # os.system('mkdir -p {}/graph'.format(TEMP_DIR))
-    # os.system('cp {}/{}/* {}/graph/'.format(args.graph_root_dir, index, TEMP_DIR))
-    # print('====== Build New Zip ======')
-    # os.system('cd {}'.format(TEMP_DIR))
-    # os.system('zip -r {}_{}.zip *'.format(args.function_name, index))
-    # os.system('cd {}'.format(cwd))
-    # print('====== Upload to S3 ======')
-    # os.system('aws s3 cp {}/{}_{}.zip s3://ziliuziliu/{}_{}.zip'.format(TEMP_DIR, args.function_name, index, args.function_name, index))
+def build_function(args, index, dockerfile, aws_config):
+    print('====== Build For {} {} ======'.format(args.application, index))
+    print('====== Extracting Zip ======')
+    os.system('rm -rf {}'.format(TEMP_DIR))
+    os.system('mkdir -p {}'.format(TEMP_DIR))
+    os.system('unzip ../build/lambda_{}.zip -d {}'.format(args.application, TEMP_DIR))
+    print('====== Building Image ======')
+    image_uri = '{}.dkr.ecr.{}.amazonaws.com/lambda-{}'.format(aws_config['account_id'], aws_config['region'], args.application)
+    os.system('docker rmi $(docker images -q {})'.format(image_uri))
+    os.system('docker build --build-arg FUNCTION_PATH=build/temp --build-arg GRAPH_DIR={}/{} -f ../{} -t {}:{} ..'.format(
+        args.graph_root_dir, 
+        index, 
+        dockerfile,
+        image_uri,
+        index
+    ))
+    print('====== Upload to ECR ======')
+    os.system('aws ecr batch-delete-image --repository-name lambda-{} --image-ids imageTag={} --region {}'.format(args.application, index, aws_config['region']))
+    time.sleep(10)
+    os.system('docker push {}:{}'.format(image_uri, index))
+    time.sleep(10)
     print('====== Create Lambda Function ======')
-    cmd = 'aws lambda create-function --function-name {}_{} --role {} --runtime provided.al2023 --timeout 300 --memory-size 3538 --handler lambda_bfs --code S3Bucket={},S3Key={}_{}.zip --vpc-config SubnetIds={},SecurityGroupIds={} --region {}'.format(args.function_name, index, ROLE_ARN, S3_BUCKET, args.function_name, index, VPC_SUBNET_IDS, VPC_SECURITY_GROUP_IDS, REGION)
-    print(cmd)
+    os.system('aws lambda delete-function --function-name {}_{} --region {}'.format(args.application, index, aws_config['region']))
+    time.sleep(10)
+    os.system('aws lambda create-function --function-name {}_{} --role {} --package-type Image --code ImageUri={}:{} --timeout 300 --memory-size 3538 --vpc-config SubnetIds={},SecurityGroupIds={} --region {}'.format(
+        args.application,
+        index,
+        aws_config['role_arn'],
+        image_uri,
+        index,
+        aws_config['vpc_subnet_ids'],
+        aws_config['vpc_security_group_ids'],
+        aws_config['region']
+    ))
+    time.sleep(10)
+    print('====== Cleaning Cache ======')
+    os.system('docker system prune -f')
 
 def main():
+    with open('aws-config.json', 'r') as f:
+        aws_config = json.load(f)
     parser = argparse.ArgumentParser()
     parser.add_argument('-graph_root_dir', type=str, required=True, help='root directory for graph dataset in csr binary')
-    parser.add_argument('-function_name', type=str, required=True, help='function name')
+    parser.add_argument('-application', type=str, required=True, help='application type (bfs, cc, pr, sssp)')
     args = parser.parse_args()
+    dockerfile = None
+    if args.application == 'bfs':
+        dockerfile = 'Dockerfile.out'
+    elif args.application == 'pr':
+        dockerfile = 'Dockerfile.in'
+    os.system('aws ecr create-repository --repository-name lambda-{}'.format(args.application))
+    os.system('aws ecr get-login-password --region {} | docker login --username AWS --password-stdin {}.dkr.ecr.{}.amazonaws.com'.format(aws_config['region'], aws_config['account_id'], aws_config['region']))
     index = 0
-    build_function(args, index)
-    # while True:
-    #     path = os.path.join(args, str(index))
-    #     if not os.path.exists(path):
-    #         break
-    #     build_function(path, index)
+    while True:
+        if not os.path.exists('../{}/{}'.format(args.graph_root_dir, index)):
+            break
+        build_function(args, index, dockerfile, aws_config)
+        index += 1
 
 if __name__ == '__main__':
     main()
-
-### TODO: BUILD IMAGE!!!!!!!

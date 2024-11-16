@@ -1,0 +1,12 @@
+FROM provided.al2023:local
+ARG FUNCTION_PATH
+ARG GRAPH_DIR
+ENV FUNCTION_PATH=${FUNCTION_PATH}
+ENV GRAPH_DIR=${GRAPH_DIR}
+SHELL ["/bin/bash", "-c"]
+COPY ${FUNCTION_PATH}/ /var/task/
+COPY ${GRAPH_DIR}/*.in /var/task/graph/
+COPY ${GRAPH_DIR}/*.deg /var/task/graph/
+COPY ${GRAPH_DIR}/*.meta /var/task/graph/
+RUN chmod +x /var/task/bootstrap
+ENTRYPOINT ["/var/task/bootstrap"]
