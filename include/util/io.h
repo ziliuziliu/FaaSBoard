@@ -109,10 +109,12 @@ void read_csr_util(
 ) {
     VLOG(1) << "start reading csr";
     size_t size;
-    FILE *in_csr_file = fopen(in_path.c_str(), "rb");
-    size = fread(in_degree, 4, out_vertex_cnt, in_csr_file);
+    FILE *in_degree_file = fopen((in_path + ".deg").c_str(), "rb");
+    size = fread(in_degree, 4, out_vertex_cnt, in_degree_file);
     CHECK(size == out_vertex_cnt) << "fread failed, read size " << size << " actual " << out_vertex_cnt;
+    fclose(in_degree_file);
     if (!only_out) {
+        FILE *in_csr_file = fopen(in_path.c_str(), "rb");
         size = fread(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
         CHECK(size == out_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << out_vertex_cnt + 1;
         size = fread(in_source, 4, total_e, in_csr_file);
@@ -121,12 +123,14 @@ void read_csr_util(
             size = fread(in_weight, sizeof(T), total_e, in_csr_file);
             CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         }
+        fclose(in_csr_file);
     }
-    fclose(in_csr_file);
-    FILE *out_csr_file = fopen(out_path.c_str(), "rb");
-    size = fread(out_degree, 4, in_vertex_cnt, out_csr_file);
+    FILE *out_degree_file = fopen((out_path + ".deg").c_str(), "rb");
+    size = fread(out_degree, 4, in_vertex_cnt, out_degree_file);
     CHECK(size == in_vertex_cnt) << "fread failed, read size " << size << " actual " << in_vertex_cnt;
+    fclose(out_degree_file);
     if (!only_in) {
+        FILE *out_csr_file = fopen(out_path.c_str(), "rb");
         size = fread(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
         CHECK(size == in_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << in_vertex_cnt + 1;
         size = fread(out_dest, 4, total_e, out_csr_file);
@@ -135,8 +139,8 @@ void read_csr_util(
             size = fread(out_weight, sizeof(T), total_e, out_csr_file);
             CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
         }
+        fclose(out_csr_file);
     }
-    fclose(out_csr_file);
     VLOG(1) << "end reading csr";
 }
 
@@ -148,10 +152,12 @@ void save_csr_util(
     bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
 ) {
     VLOG(1) << "start saving csr";
-    FILE *in_csr_file = fopen(in_path.c_str(), "wb");
     size_t size;
-    size = fwrite(in_degree, 4, out_vertex_cnt, in_csr_file);
+    FILE *in_degree_file = fopen((in_path + ".deg").c_str(), "wb");
+    size = fwrite(in_degree, 4, out_vertex_cnt, in_degree_file);
     CHECK(size == out_vertex_cnt) << "fwrite failed, read size " << size << " actual " << out_vertex_cnt;
+    fclose(in_degree_file);
+    FILE *in_csr_file = fopen(in_path.c_str(), "wb");
     size = fwrite(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
     CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
     size = fwrite(in_source, 4, total_e, in_csr_file);
@@ -161,9 +167,11 @@ void save_csr_util(
         CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
     }
     fclose(in_csr_file);
-    FILE *out_csr_file = fopen(out_path.c_str(), "wb");
-    size = fwrite(out_degree, 4, in_vertex_cnt, out_csr_file);
+    FILE *out_degree_file = fopen((out_path + ".deg").c_str(), "wb");
+    size = fwrite(out_degree, 4, in_vertex_cnt, out_degree_file);
     CHECK(size == in_vertex_cnt) << "fwrite failed, read size " << size << " actual " << in_vertex_cnt;
+    fclose(out_degree_file);
+    FILE *out_csr_file = fopen(out_path.c_str(), "wb");
     size = fwrite(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
     CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
     size = fwrite(out_dest, 4, total_e, out_csr_file);

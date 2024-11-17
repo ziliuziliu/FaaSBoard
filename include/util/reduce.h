@@ -39,7 +39,7 @@ reduce_uint32_f_single get_reduce_func_uint32_single(uint8_t reduce_op) {
                 return std::min(x, y);
             });
         default:
-            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
@@ -54,7 +54,7 @@ reduce_int_f_single get_reduce_func_int_single(uint8_t reduce_op) {
                 return std::min(x, y);
             });
         default:
-            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
@@ -69,7 +69,7 @@ reduce_float_f_single get_reduce_func_float_single(uint8_t reduce_op) {
                 return std::min(x, y);
             });
         default:
-            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
@@ -108,7 +108,7 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) 
                 }
             });
         default:
-            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
@@ -126,19 +126,21 @@ reduce_float_f_avx_masked get_reduce_func_float_avx_masked(uint8_t reduce_op) {
                 }
             });
         default:
-            LOG(FATAL) << "reduce op " << reduce_op << " not implemented";
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
 template <class T = empty>
 void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type = 0xff) {
     if (data_type == 0xff) {
-        if (std::is_same<T, int>::value) {
+        if (std::is_same<T, uint32_t>::value) {
+            data_type = CAAS_UINT32;
+        } else if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
         } else if (std::is_same<T, float>::value) {
             data_type = CAAS_FLOAT;
         } else {
-            data_type = CAAS_UINT32;
+            LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     switch (data_type) {
@@ -170,19 +172,21 @@ void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type =
             break;
         }
         default:
-            break;
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
 template <class T = empty>
 void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
     if (data_type == 0xff) {
-        if (std::is_same<T, int>::value) {
+        if (std::is_same<T, uint32_t>::value) {
+            data_type = CAAS_UINT32;
+        } else if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
         } else if (std::is_same<T, float>::value) {
             data_type = CAAS_FLOAT;
         } else {
-            data_type = CAAS_UINT32;
+            LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     switch (data_type) {
@@ -212,19 +216,21 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
             break;
         }
         default:
-            break;
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 
 template <class T>
 void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
     if (data_type == 0xff) {
-        if (std::is_same<T, int>::value) {
+        if (std::is_same<T, uint32_t>::value) {
+            data_type = CAAS_UINT32;
+        } else if (std::is_same<T, int>::value) {
             data_type = CAAS_INT;
         } else if (std::is_same<T, float>::value) {
             data_type = CAAS_FLOAT;
         } else {
-            data_type = CAAS_UINT32;
+            LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     bitmap_iterator *it = new bitmap_iterator(b_bm, len);
@@ -284,7 +290,7 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             break;
         }
         default:
-            break;
+            LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
     }
 }
 

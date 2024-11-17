@@ -61,25 +61,26 @@ public:
         void(graph<vwT, ewT> *, int, uint32_t, uint32_t *, ewT *, uint32_t)
     > sparse_func, dense_func;
     std::function<void(graph<vwT, ewT> *, int, uint32_t)> reduce_func;
+    exec_config *config;
 
     graph() {}
 
     graph(
         int index, graph_meta g_meta, uint32_t from_source, uint32_t to_source, uint32_t from_dest, uint32_t to_dest, 
-        uint32_t edges, uint8_t reduce_op, vwT base_vertex_value
+        uint32_t edges, uint8_t reduce_op, vwT base_vertex_value, exec_config *config
     ) : g_meta(g_meta), from_source(from_source), to_source(to_source), from_dest(from_dest), to_dest(to_dest), 
-        edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value) {
+        edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value), config(config) {
         weighted = !std::is_same<ewT, void *>::value;
         manage = std::max(from_source, from_dest) > std::min(to_source, to_dest);
-        in_offset = FLAGS_sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
+        in_offset = config -> sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
         in_degree = new uint32_t[to_dest - from_dest]();
-        in_source = FLAGS_sparse_only ? nullptr : new uint32_t[edges]();
-        out_offset = FLAGS_dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
+        in_source = config -> sparse_only ? nullptr : new uint32_t[edges]();
+        out_offset = config -> dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
         out_degree = new uint32_t[to_source - from_source]();
-        out_dest = FLAGS_dense_only ? nullptr : new uint32_t[edges]();
+        out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
         if (weighted) {
-            in_weight = FLAGS_sparse_only ? nullptr : new ewT[edges]();
-            out_weight = FLAGS_dense_only ? nullptr : new ewT[edges]();
+            in_weight = config -> sparse_only ? nullptr : new ewT[edges]();
+            out_weight = config -> dense_only ? nullptr : new ewT[edges]();
         }
         VLOG(1) << "graph " << index << " [ " 
             << from_source << ", " << to_source - 1 << " ] -> [ "
@@ -96,7 +97,7 @@ public:
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree,
-            weighted, FLAGS_dense_only, FLAGS_sparse_only, to_source - from_source, to_dest - from_dest, edges
+            weighted, config -> dense_only, config -> sparse_only, to_source - from_source, to_dest - from_dest, edges
         );
     }
 
@@ -155,10 +156,10 @@ public:
     void work_stealing(int round, uint32_t start_v, uint32_t end_v, auto selected) {
         uint32_t interval = end_v - start_v;
         std::vector<thread_state *> thread_states;
-        for (int i = 0; i < (int)FLAGS_cores; i++) {
-            uint32_t curr = start_v + interval / FLAGS_cores * i;
-            uint32_t end = start_v + interval / FLAGS_cores * (i + 1);
-            if (i == (int)FLAGS_cores - 1) {
+        for (int i = 0; i < config -> cores; i++) {
+            uint32_t curr = start_v + interval / config -> cores * i;
+            uint32_t end = start_v + interval / config -> cores * (i + 1);
+            if (i == config -> cores - 1) {
                 end = end_v;
             }
             thread_states.push_back(new thread_state(curr, end));
@@ -173,8 +174,8 @@ public:
                 selected(round, begin, end);
             }
             thread_states[index] -> state = STEALING;
-            for (int offset = 1; offset < (int)FLAGS_cores; offset++) {
-                int new_index = (index + offset) % FLAGS_cores;
+            for (int offset = 1; offset < config -> cores; offset++) {
+                int new_index = (index + offset) % config -> cores;
                 if (thread_states[new_index] -> state == STEALING) {
                     continue;
                 }
@@ -189,10 +190,10 @@ public:
             }
         };
         std::vector<std::thread> work_threads;
-        for (int i = 0; i < (int)FLAGS_cores; i++) {
+        for (int i = 0; i < config -> cores; i++) {
             work_threads.push_back(std::thread(exec_func, i));
         }
-        for (int i = 0; i < (int)FLAGS_cores; i++) {
+        for (int i = 0; i < config -> cores; i++) {
             work_threads[i].join();
         }
     }
@@ -200,7 +201,7 @@ public:
     void exec_each(int round, int index) {
         uint32_t active_edges = 0;
         in_segment -> print(round);
-        if (!FLAGS_sparse_only && !FLAGS_dense_only) {
+        if (!config -> sparse_only && !config -> dense_only) {
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             #pragma omp parallel for reduction(+:active_edges)
@@ -211,7 +212,7 @@ public:
             }
         }
         bool sparse = active_edges < edges / 20;
-        if (FLAGS_sparse_only || (!FLAGS_dense_only && sparse)) {
+        if (config -> sparse_only || (!config -> dense_only && sparse)) {
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             timer t;
@@ -221,7 +222,7 @@ public:
             });
             t.from_tick();
         }
-        if (FLAGS_dense_only || (!FLAGS_sparse_only && !sparse)) {
+        if (config -> dense_only || (!config -> sparse_only && !sparse)) {
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;
             timer t;
@@ -258,10 +259,10 @@ public:
         return vote_object -> vec[0];
     }
 
-    void save_result(std::string path) {
-        std::ofstream file(path);
+    void save_local(std::string local_path) {
+        std::ofstream file(local_path);
         if (!file.is_open()) {
-            LOG(FATAL) << "could not open the file " << path;
+            LOG(FATAL) << "could not open the file " << local_path;
         }
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
@@ -269,7 +270,6 @@ public:
             save_result_util<vwT>(file, start, end, in_segment -> vec);
         }
     }
-
 };
 
 #endif

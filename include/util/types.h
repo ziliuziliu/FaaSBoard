@@ -33,6 +33,10 @@ enum class COMM_TYPE : int {
 #define CAAS_FD_NOTINQUEUE 0
 #define CAAS_FD_INQUEUE 1
 
+#define CAAS_NO_SAVE 0
+#define CAAS_SAVE_LOCAL 1
+#define CAAS_SAVE_S3 2
+
 #define CAAS_SPARSE_LIMIT 1000000
 #define CAAS_SPARSE_PAIR_LIMIT 100000
 

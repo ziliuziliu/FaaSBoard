@@ -9,15 +9,16 @@
 #include "util/types.h"
 #include "util/atomic.h"
 #include "util/log.h"
+#include "util/flags.h"
 
 graph_set<float, empty> *graphs = nullptr;
 
-void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int iterations) {
+void pagerank(uint32_t request_id, int iterations, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
-        graphs = new graph_set<float, empty>(graph_dir, CAAS_ADD, 0.0);
+        graphs = new graph_set<float, empty>(CAAS_ADD, 0.0, config);
     }
     graphs -> set_begin_func(
         [](graph<float, empty> *g, uint32_t v){
@@ -73,7 +74,7 @@ void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int 
     );
     graphs -> connect(request_id);
     graphs -> begin(0);
-    if (!no_pipeline) {
+    if (!config -> no_pipeline) {
         for (int round = 1; round <= iterations; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
             graphs -> vote();
@@ -100,7 +101,7 @@ void pagerank(std::string graph_dir, uint32_t request_id, bool no_pipeline, int 
     graphs -> disconnect();
     t.from_start("overall");
     t.tick("save_result");
-    graphs -> save_result(graph_dir);
+    graphs -> save_result(config -> save_mode, config -> graph_dir);
     t.from_tick();
 }
 
