@@ -34,7 +34,7 @@ enum class COMM_TYPE : int {
 #define CAAS_FD_INQUEUE 1
 
 #define CAAS_SPARSE_LIMIT 1000000
-#define CAAS_SPARSE_PAIR_THRESHOLD 100000
+#define CAAS_SPARSE_PAIR_LIMIT 100000
 
 typedef void * empty;
 

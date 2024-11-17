@@ -63,8 +63,20 @@ COMM_TYPE caas_segment_get_segment_type(uint32_t flag) {
 }
 
 void caas_segment_set_segment_type(uint32_t *flag, COMM_TYPE segment_type) {
-    *flag &= 0x1fffffff;
+    *flag &= 0x9fffffff;
     *flag |= ((uint32_t)segment_type << 29);
+}
+
+COMM_TYPE caas_adaptive_segment(uint32_t segment_size) {
+    if (segment_size == 0) {
+        return COMM_TYPE::CAAS_MAGIC;
+    } else if (segment_size <= CAAS_SPARSE_PAIR_LIMIT) {
+        return COMM_TYPE::CAAS_PAIR;
+    } else if (segment_size <= CAAS_SPARSE_LIMIT) {
+        return COMM_TYPE::CAAS_SPARSE;
+    } else {
+        return COMM_TYPE::CAAS_DENSE;
+    }
 }
 
 void caas_send_all(int fd, char *data, size_t len) {
@@ -219,7 +231,7 @@ public:
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_MASKED_BROADCAST: {
-                    COMM_TYPE segment_type = caas_adaptive_segment<T>(this);
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
@@ -246,7 +258,7 @@ public:
                     break;
                 }
                 case CAAS_MASKED_REDUCE: {
-                    COMM_TYPE segment_type = caas_adaptive_segment<T>(this);
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
@@ -293,18 +305,6 @@ comm_object<T> *caas_make_comm_object(
 }
 
 template <class T>
-COMM_TYPE caas_adaptive_segment(comm_object<T> *object) {
-    uint32_t seg_sz = object -> bm -> get_size();
-    if (seg_sz == 0) {
-        return COMM_TYPE::CAAS_MAGIC;
-    } else if (seg_sz <= CAAS_SPARSE_LIMIT) {
-        return (seg_sz <= CAAS_SPARSE_PAIR_THRESHOLD) ? COMM_TYPE::CAAS_PAIR : COMM_TYPE::CAAS_SPARSE;
-    } else {
-        return COMM_TYPE::CAAS_DENSE;
-    }
-}
-
-template <class T>
 std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, COMM_TYPE segment_type) {
     // Set segment type
     caas_segment_set_segment_type(object -> data + 4, segment_type);
@@ -330,7 +330,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, COM
                     break;
                 }
                 seg_pairs[pos] = index;
-                seg_pairs[pos + 1] = object -> data[5 + object->bitmap_len + index];
+                seg_pairs[pos + 1] = object -> data[5 + object -> bitmap_len + index];
                 pos += 2;
             }
             return {(char *)seg_pairs, pos << 2};
@@ -347,7 +347,7 @@ std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, COM
                 if (index == 0xffffffff) {
                     break;
                 }
-                segment[pos] = object -> data[5 + object->bitmap_len + index];
+                segment[pos] = object -> data[5 + object -> bitmap_len + index];
                 pos++;
             }
             return {(char *)segment, segment_len << 2};
@@ -382,7 +382,7 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
             while (pos < (len >> 2)) {
                 // Update bitmap and vector
                 uint32_t index = segment[pos];
-                object -> data[5 + object->bitmap_len + index] = segment[pos + 1];
+                object -> data[5 + object -> bitmap_len + index] = segment[pos + 1];
                 object -> bm -> add(index);
                 pos += 2;
             }
@@ -398,7 +398,7 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
                 if (index == 0xffffffff) {
                     break;
                 }
-                object -> data[5 + object->bitmap_len + index] = segment[pos];
+                object -> data[5 + object -> bitmap_len + index] = segment[pos];
                 pos++;
             }
             break;

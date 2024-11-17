@@ -76,17 +76,6 @@ public:
         return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
     }
 
-    COMM_TYPE adaptive_segment() {
-        uint32_t seg_sz = bm -> get_size();
-        if (seg_sz== 0) {
-            return COMM_TYPE::CAAS_MAGIC;
-        } else if (seg_sz <= CAAS_SPARSE_LIMIT) {
-            return (seg_sz <= CAAS_SPARSE_PAIR_THRESHOLD) ? COMM_TYPE::CAAS_PAIR : COMM_TYPE::CAAS_SPARSE;
-        } else {
-            return COMM_TYPE::CAAS_DENSE;
-        }
-    }
-
     void initialize(uint32_t *header) {
         memcpy(data, header, 20);
         initialized = true;
@@ -245,10 +234,10 @@ void work(int thread_id) {
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
                 if (segment -> cnt == (int)segment -> fds.size()) {
-                    COMM_TYPE segment_type = segment -> adaptive_segment();
+                    COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size());
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    if (segment_type == COMM_TYPE::CAAS_SPARSE) {
+                    if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] new_data.first;
                     }
                     segment -> reset();
