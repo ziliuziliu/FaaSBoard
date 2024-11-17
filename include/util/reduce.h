@@ -288,4 +288,67 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
     }
 }
 
+template <class T>
+void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t a_len, uint32_t b_len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
+    if (data_type == 0xff) {
+        if (std::is_same<T, int>::value) {
+            data_type = CAAS_INT;
+        } else if (std::is_same<T, float>::value) {
+            data_type = CAAS_FLOAT;
+        } else {
+            data_type = CAAS_UINT32;
+        }
+    }
+    switch (data_type) {
+        case CAAS_UINT32: {
+            reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
+            uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
+            uint32_t idx = 0;
+            // b is a pair of index and value, so we need to use the index to update a
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                uint32_t new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        case CAAS_INT: {
+            reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
+            int *aa = (int *)a, *bb = (int *)b;
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                int new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        case CAAS_FLOAT: {
+            reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
+            float *aa = (float *)a, *bb = (float *)b;
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                float new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 #endif

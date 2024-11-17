@@ -76,52 +76,105 @@ public:
         return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
     }
 
-    bool adaptive_segment() {
-        return bm -> get_size() <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
-    }
-
     void initialize(uint32_t *header) {
         memcpy(data, header, 20);
         initialized = true;
     }
 
-    std::pair<char *, size_t> make_adaptive_segment(bool segment_type) {
+    std::pair<char *, size_t> make_adaptive_segment(COMM_TYPE segment_type) {
+        // Set segment type
         caas_segment_set_segment_type(data + 4, segment_type);
-        if (segment_type == CAAS_DENSE) {
-            return {(char *)data, (5 + bitmap_len + vec_len) << 2};
-        } else {
-            uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
-            uint32_t *segment = new uint32_t[segment_len];
-            uint32_t pos = 5 + bitmap_len;
-            memcpy(segment, data, 20 + (bitmap_len << 2));
-            bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
-            for (;;) {
-                uint32_t index = it -> next();
-                if (index == 0xffffffff) {
-                    break;
-                }
-                segment[pos] = data[5 + bitmap_len + index];
-                pos++;
+
+        switch(segment_type) {
+            case COMM_TYPE::CAAS_MAGIC: {
+                uint32_t seg_pairs_len = 5;
+                uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
+                memcpy(seg_pairs, data, 20); // 20 is the size of the first 5 elements
+                return {(char *)seg_pairs, 5 << 2};
             }
-            return {(char *)segment, segment_len << 2};
+
+            case COMM_TYPE::CAAS_PAIR: {
+                // Construct sparse segment with only index-value pairs whose value is not zero
+                uint32_t segment_len = 5 + bm -> get_size() * 2;
+                uint32_t *segment = new uint32_t[segment_len];
+                memcpy(segment, data, 20);
+                uint32_t pos = 5;
+                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
+                for (;;) {
+                    uint32_t index = it -> next();
+                    if (index == 0xffffffff) {
+                        break;
+                    }
+                    segment[pos] = index;
+                    segment[pos + 1] = data[5 + bitmap_len + index];
+                    pos += 2;
+                }
+                return {(char *)segment, pos << 2};
+            }
+
+            case COMM_TYPE::CAAS_SPARSE: {
+                uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
+                uint32_t *segment = new uint32_t[segment_len];
+                uint32_t pos = 5 + bitmap_len;
+                memcpy(segment, data, 20 + (bitmap_len << 2));
+                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
+                for (;;) {
+                    uint32_t index = it -> next();
+                    if (index == 0xffffffff) {
+                        break;
+                    }
+                    segment[pos] = data[5 + bitmap_len + index];
+                    pos++;
+                }
+                return {(char *)segment, segment_len << 2};
+            }
+
+            case COMM_TYPE::CAAS_DENSE: {
+                return {(char *)data, (5 + bitmap_len + vec_len) << 2};
+            }
+
+            default: {
+                LOG(FATAL) << "undefined segment type " << (int)segment_type;
+            }
         }
     }
 
     void reduce_adaptive_segment(char *raw_data, size_t len) {
         uint32_t *segment = (uint32_t *)raw_data;
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
-        bool segment_type = caas_segment_get_segment_type(flag);
+        COMM_TYPE segment_type = caas_segment_get_segment_type(flag);
         uint8_t data_type = caas_flag_get_data_type(flag);
         uint8_t reduce_op = caas_flag_get_reduce_op(flag);
-        if (segment_type == CAAS_DENSE) {
-            VLOG(1) << "reduce dense";
-            reduce_adaptive_segment_m.lock();
-            reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
-            reduce_adaptive_segment_m.unlock();
-        } else {
-            VLOG(1) << "reduce sparse";
-            bitmap *segment_bm = new bitmap(vec_len, segment + 5);
-            reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
+
+        switch(segment_type) {
+            case COMM_TYPE::CAAS_MAGIC: {
+                return;
+            }
+
+            case COMM_TYPE::CAAS_PAIR: {
+                VLOG(1) << "reduce sparse pair";
+                reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
+                break;
+            }
+
+            case COMM_TYPE::CAAS_SPARSE: {
+                VLOG(1) << "reduce sparse";
+                bitmap *segment_bm = new bitmap(vec_len, segment + 5);
+                reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
+                break;
+            }
+
+            case COMM_TYPE::CAAS_DENSE: {
+                VLOG(1) << "reduce dense";
+                reduce_adaptive_segment_m.lock();
+                reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
+                reduce_adaptive_segment_m.unlock();
+                break;
+            }
+
+            default: {
+                LOG(FATAL) << "undefined segment type " << (int)segment_type;
+            }
         }
     }
 
@@ -181,10 +234,10 @@ void work(int thread_id) {
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> cnt++;
                 if (segment -> cnt == (int)segment -> fds.size()) {
-                    bool segment_type = segment -> adaptive_segment();
+                    COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size());
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    if (segment_type == CAAS_SPARSE) {
+                    if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] new_data.first;
                     }
                     segment -> reset();
