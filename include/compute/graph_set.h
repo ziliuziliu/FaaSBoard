@@ -28,6 +28,9 @@ public:
 
     graph_set(uint8_t reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
+        if (enable_s3()) {
+            s3_init();
+        }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
@@ -310,7 +313,13 @@ public:
             case CAAS_SAVE_LOCAL:
                 for (int i = 0; i < (int)graphs.size(); i++) {
                     VLOG(1) << "graph " << i << " save result";
-                    graphs[i] -> save_local(local_dir + "/result" + std::to_string(i) + ".txt");
+                    graphs[i] -> save_local();
+                }
+                break;
+            case CAAS_SAVE_S3:
+                for (int i = 0; i < (int)graphs.size(); i++) {
+                    VLOG(1) << "graph " << i << " save result";
+                    graphs[i] -> save_s3();
                 }
                 break;
             default:

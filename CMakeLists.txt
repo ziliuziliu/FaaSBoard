@@ -8,9 +8,12 @@ include(CMakePrintHelpers)
 # Define the project and its language
 project(faasboard CXX)
 
+set(SERVICE_COMPONENTS s3)
+
 # Find OpenMP
-find_package(OpenMP)
-find_package(aws-lambda-runtime)
+find_package(OpenMP REQUIRED)
+find_package(aws-lambda-runtime REQUIRED)
+find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
 find_package(glog REQUIRED)
 find_package(gflags REQUIRED)
 
@@ -39,14 +42,14 @@ add_executable(proxy_server ${CMAKE_SOURCE_DIR}/test/proxy_server.cpp)
 add_executable(correctness_test ${CMAKE_SOURCE_DIR}/test/others/correctness_test.cpp)
 
 # Link
-target_link_libraries(preprocess_and_save PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(local_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(local_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(lambda_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime)
-target_link_libraries(lambda_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime)
-target_link_libraries(meta_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(proxy_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
-target_link_libraries(correctness_test PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+target_link_libraries(preprocess_and_save OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(local_bfs OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(local_pr OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(lambda_bfs OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(lambda_pr OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(meta_server OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(proxy_server OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(correctness_test OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
 
 # create zip
 aws_lambda_package_target(lambda_bfs)
