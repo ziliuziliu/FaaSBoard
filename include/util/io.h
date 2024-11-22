@@ -46,7 +46,7 @@ void read_txt_util(
     uint64_t edge_buffer_count = 0;
     uint32_t mx = 0, x, y;
     uint32_t *mapping = new uint32_t[total_v * 3];
-    uint32_t *edge_buffer = new uint32_t[uint64_t(total_e) * 2];
+    uint32_t *edge_buffer = new uint32_t[(uint64_t)total_e * 2];
     while (getline(&line, &line_size, txt_file) > 0) {
         if (line[0] == '#') continue;
         parse_line(line, line_size, &x, &y);
@@ -72,7 +72,7 @@ void read_txt_util(
     VLOG(1) << "start building csr";
     for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
         uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
-        in_offset[v + 1]++; 
+        in_offset[v + 1]++;
         out_offset[u + 1]++;
     }
     for (uint32_t i = 1; i <= total_v; i++) {
