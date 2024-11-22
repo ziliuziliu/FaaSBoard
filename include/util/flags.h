@@ -23,6 +23,7 @@ DEFINE_int32(partitions, 0, "how many functions to hold the graph");
 DEFINE_bool(sparse_only, false, "sparse mode");
 DEFINE_bool(dense_only, false, "dense mode");
 DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");
+DEFINE_bool(undirected, false, "whether it's undirected graph (0: directed, 1: undirected)");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);

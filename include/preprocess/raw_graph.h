@@ -44,9 +44,9 @@ public:
         }
     }
 
-    void read_txt(std::string path) {
+    void read_txt(std::string path, bool undirected) {
         read_txt_util<ewT>(
-            path, 
+            path, undirected,
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
             weighted, meta.total_v, meta.total_e

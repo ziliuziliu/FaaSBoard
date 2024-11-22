@@ -119,8 +119,8 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = 1;
-    raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
-    g.read_txt(FLAGS_graph_file);
+    raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
+    g.read_txt(FLAGS_graph_file, FLAGS_undirected);
     if (FLAGS_application == "bfs") {
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         uint32_t *dis2 = read_result<uint32_t>(FLAGS_graph_root_dir, FLAGS_vertices);

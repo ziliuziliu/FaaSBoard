@@ -34,7 +34,7 @@ void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t
 // w = (u + v) % 100
 template <class T>
 void read_txt_util(
-    std::string path, 
+    std::string path, bool undirected,
     uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
     uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
     bool weighted, uint32_t total_v, uint32_t total_e
@@ -52,6 +52,10 @@ void read_txt_util(
         parse_line(line, line_size, &x, &y);
         edge_buffer[edge_buffer_count++] = x;
         edge_buffer[edge_buffer_count++] = y;
+        if (undirected) {
+            edge_buffer[edge_buffer_count++] = y;
+            edge_buffer[edge_buffer_count++] = x;
+        }
         if (edge_buffer_count <= 20) {
             VLOG(1) << x << " " << y;
         }
