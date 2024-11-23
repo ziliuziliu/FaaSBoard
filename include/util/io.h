@@ -34,7 +34,7 @@ void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t
 // w = (u + v) % 100
 template <class T>
 void read_txt_util(
-    std::string path, 
+    std::string path, bool undirected,
     uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
     uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
     bool weighted, uint32_t total_v, uint32_t total_e
@@ -46,12 +46,16 @@ void read_txt_util(
     uint64_t edge_buffer_count = 0;
     uint32_t mx = 0, x, y;
     uint32_t *mapping = new uint32_t[total_v * 3];
-    uint32_t *edge_buffer = new uint32_t[uint64_t(total_e) * 2];
+    uint32_t *edge_buffer = new uint32_t[(uint64_t)total_e * 2];
     while (getline(&line, &line_size, txt_file) > 0) {
         if (line[0] == '#') continue;
         parse_line(line, line_size, &x, &y);
         edge_buffer[edge_buffer_count++] = x;
         edge_buffer[edge_buffer_count++] = y;
+        if (undirected) {
+            edge_buffer[edge_buffer_count++] = y;
+            edge_buffer[edge_buffer_count++] = x;
+        }
         if (edge_buffer_count <= 20) {
             VLOG(1) << x << " " << y;
         }
@@ -68,7 +72,7 @@ void read_txt_util(
     VLOG(1) << "start building csr";
     for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
         uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
-        in_offset[v + 1]++; 
+        in_offset[v + 1]++;
         out_offset[u + 1]++;
     }
     for (uint32_t i = 1; i <= total_v; i++) {

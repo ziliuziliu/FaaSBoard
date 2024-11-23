@@ -44,9 +44,9 @@ public:
         }
     }
 
-    void read_txt(std::string path) {
+    void read_txt(std::string path, bool undirected) {
         read_txt_util<ewT>(
-            path, 
+            path, undirected,
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
             weighted, meta.total_v, meta.total_e
@@ -182,12 +182,14 @@ public:
         for (int t = 0; t < cut; t++) {
             std::vector<uint32_t> block_edges(cut);
             for (uint32_t i = cuts[t]; i < cuts[t + 1]; i++) {
-                int col_block_p = 0;
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
-                    while (col_block_p < cut && dest >= cuts[col_block_p + 1])
-                        col_block_p++;
-                    block_edges[col_block_p]++;
+                    for (int k = 0; k < cut; k++) {
+                        if (dest >= cuts[k] && dest < cuts[k + 1]) {
+                            block_edges[k]++;
+                            break;
+                        }
+                    }
                 }
             }
             #pragma omp critical
