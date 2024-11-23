@@ -14,7 +14,7 @@ make aws-lambda-package-lambda_pr
 ./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
 
 5. preprocess_and_save
-sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> --v 1
+sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> -undirected <is_undirected> --v 1
 
 6. run bfs
 sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root <bfs_root> -graph_dir <graph_dir> -cores 2 --sparse-only --meta-server <meta_server_ip> --v 1 > 0.txt 2>&1 & \
@@ -26,7 +26,7 @@ sudo numactl --physcpubind=10,11 ./local_bfs -request_id 123 -bfs_root <bfs_root
 // for now we can take this setting: 6 partitions for graph, and each local_bfs program use 2 cores specified by numactl
 
 7. correctness bfs
-sudo ./correctness_test -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -application bfs -bfs_root <bfs_root> --v 1
+sudo ./correctness_test -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -application bfs -bfs_root <bfs_root> -undirected <is_undirected> --v 1
 
 8. run pagerank
 sudo numactl --physcpubind=0,1 ./local_pr -request_id 123 -pr_iterations <iterations> -graph_dir <graph_dir> -cores 2 --dense-only --meta-server <meta_server_ip> --v 1 > 0.txt 2>&1 & \
@@ -37,7 +37,7 @@ sudo numactl --physcpubind=8,9 ./local_pr -request_id 123 -pr_iterations <iterat
 sudo numactl --physcpubind=10,11 ./local_pr -request_id 123 -pr_iterations <iterations> -graph_dir <graph_dir> -cores 2 --dense-only --meta-server <meta_server_ip> --v 1 > 5.txt 2>&1 &
 
 9. correctness pagerank
-sudo ./correctness_test -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -application pr -pr_iterations <iterations> --v 1
+sudo ./correctness_test -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -application pr -pr_iterations <iterations> -undirected <is_undirected> --v 1
 
 10. build images and functions
 sudo python3 build_function.py -graph_root_dir <graph_root_dir> -application <application>
