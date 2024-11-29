@@ -18,7 +18,7 @@ void pagerank(uint32_t request_id, int iterations, exec_config *config) {
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
-        graphs = new graph_set<float, empty>(CAAS_ADD, 0.0, config);
+        graphs = new graph_set<float, empty>(CAAS_REDUCE_OP::ADD, 0.0, config);
     }
     graphs -> set_begin_func(
         [](graph<float, empty> *g, uint32_t v){

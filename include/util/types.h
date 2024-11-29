@@ -1,6 +1,12 @@
 #ifndef _TYPES_H
 #define _TYPES_H
 
+#define CAAS_SPARSE_LIMIT 1000000
+#define CAAS_SPARSE_PAIR_LIMIT 100000
+
+#define CAAS_FD_NOTINQUEUE 0
+#define CAAS_FD_INQUEUE 1
+
 enum class EDGE_DIRECTION : unsigned int {
     INCOMING = 0,
     OUTGOING = 1,
@@ -11,21 +17,30 @@ enum class WORKER_STATUS : unsigned int {
     STEALING = 1,
 };
 
-#define CAAS_UINT32 0
-#define CAAS_INT 1
-#define CAAS_FLOAT 2
+enum class CAAS_TYPE : unsigned int {
+    UINT32 = 0,
+    INT = 1,
+    FLOAT = 2,
+    DEFAULT = 3,
+};
 
-#define CAAS_MASKED_BROADCAST 0
-#define CAAS_MASKED_REDUCE 1
-#define CAAS_ALLREDUCE 2
+enum class CAAS_OP : unsigned int {
+    MASKED_BROADCAST = 0,
+    MASKED_REDUCE = 1,
+    ALLREDUCE = 2,
+};
 
-#define CAAS_UP 0
-#define CAAS_ADD 1
-#define CAAS_MIN 2
+enum class CAAS_REDUCE_OP : unsigned int {
+    UP = 0,
+    ADD = 1,
+    MIN = 2,
+};
 
-#define CAAS_PROXY 0
-#define CAAS_S3 1
-#define CAAS_DIRECT 2
+enum class CAAS_COMM_MODE : unsigned int {
+    PROXY = 0,
+    S3 = 1,
+    DIRECT = 2,
+};
 
 enum class COMM_TYPE : unsigned int {
     CAAS_MAGIC = 0,
@@ -34,15 +49,11 @@ enum class COMM_TYPE : unsigned int {
     CAAS_DENSE = 3,
 };
 
-#define CAAS_FD_NOTINQUEUE 0
-#define CAAS_FD_INQUEUE 1
-
-#define CAAS_NO_SAVE 0
-#define CAAS_SAVE_LOCAL 1
-#define CAAS_SAVE_S3 2
-
-#define CAAS_SPARSE_LIMIT 1000000
-#define CAAS_SPARSE_PAIR_LIMIT 100000
+enum class CAAS_SAVE_MODE : unsigned int {
+    NO_SAVE = 0,
+    SAVE_LOCAL = 1,
+    SAVE_S3 = 2,
+};
 
 typedef void * empty;
 

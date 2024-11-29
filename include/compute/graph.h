@@ -56,7 +56,7 @@ public:
     ewT *in_weight, *out_weight;
     comm_object<vwT> *in_segment, *out_segment;
     comm_object<uint32_t> *vote_object;
-    uint8_t reduce_op;
+    CAAS_REDUCE_OP reduce_op;
     vwT base_vertex_value;
     std::function<int(graph<vwT, ewT> *, uint32_t)> begin_func;
     std::function<
@@ -69,7 +69,7 @@ public:
 
     graph(
         int index, graph_meta g_meta, uint32_t from_source, uint32_t to_source, uint32_t from_dest, uint32_t to_dest, 
-        uint32_t edges, uint8_t reduce_op, vwT base_vertex_value, exec_config *config
+        uint32_t edges, CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config
     ) : g_meta(g_meta), from_source(from_source), to_source(to_source), from_dest(from_dest), to_dest(to_dest), 
         edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value), config(config) {
         weighted = !std::is_same<ewT, void *>::value;

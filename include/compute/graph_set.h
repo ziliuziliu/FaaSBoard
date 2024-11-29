@@ -26,7 +26,7 @@ public:
     vwT base_vertex_value;
     exec_config *config;
 
-    graph_set(uint8_t reduce_op, vwT base_vertex_value, exec_config *config)
+    graph_set(CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
@@ -65,11 +65,11 @@ public:
     }
 
     std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(
-        json meta, uint8_t reduce_op, vwT base_vertex_value, exec_config *config
+        json meta, CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config
     ) {
         comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
         comm_object<uint32_t> *vote_object = nullptr;
-        uint8_t comm_type = meta["comm_type"];
+        CAAS_COMM_MODE comm_type = meta["comm_type"];
         std::string meta_server_addr = config -> meta_server_addr;
         int meta_server_port = 20000;
         json recv = meta["recv"];
@@ -77,14 +77,14 @@ public:
         for (int i = 0; i < (int)recv.size(); i++) {
             json item = recv[i];
             uint32_t start = item["start"], end = item["end"];
-            uint8_t data_type = caas_get_data_type<vwT>();
+            CAAS_TYPE data_type = caas_get_data_type<vwT>();
             uint32_t object_id = item["object_id"];
             segment_table_m.lock();
             if (!in_segments.count(object_id)) {
                 in_segments[object_id] = caas_make_comm_object<vwT>(
                     comm_type, meta_server_addr, meta_server_port, 
                     item["object_id"], end - start, true, start, 
-                    item["root"], item["instances"], item["members"], data_type, CAAS_MASKED_BROADCAST, reduce_op,
+                    item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_BROADCAST, reduce_op,
                     base_vertex_value
                 );
             }
@@ -100,14 +100,14 @@ public:
         for (int i = 0; i < (int)send.size(); i++) {
             json item = send[i];
             uint32_t start = item["start"], end = item["end"];
-            uint8_t data_type = caas_get_data_type<vwT>();
+            CAAS_TYPE data_type = caas_get_data_type<vwT>();
             uint32_t object_id = item["object_id"];
             segment_table_m.lock();
             if (!out_segments.count(object_id)) {
                 out_segments[object_id] = caas_make_comm_object<vwT>(
                     comm_type, meta_server_addr, meta_server_port,
                     item["object_id"], end - start, true, start, 
-                    item["root"], item["instances"], item["members"], data_type, CAAS_MASKED_REDUCE, reduce_op,
+                    item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_REDUCE, reduce_op,
                     base_vertex_value
                 );
             }
@@ -122,7 +122,7 @@ public:
         vote_object = caas_make_comm_object<uint32_t>(
             comm_type, meta_server_addr, meta_server_port,
             vote_meta["object_id"], 1, false, 0, 
-            false, vote_meta["instances"], vote_meta["members"], CAAS_UINT32, CAAS_ALLREDUCE, CAAS_ADD,
+            false, vote_meta["instances"], vote_meta["members"], CAAS_TYPE::UINT32, CAAS_OP::ALLREDUCE, CAAS_REDUCE_OP::ADD,
             0
         );
         return std::make_tuple(in_segment, out_segment, vote_object);
@@ -303,18 +303,18 @@ public:
         return activated;
     }
 
-    void save_result(int save_mode, std::string local_dir) {
+    void save_result(CAAS_SAVE_MODE save_mode, std::string local_dir) {
         switch (save_mode) {
-            case CAAS_NO_SAVE:
+             case CAAS_SAVE_MODE::NO_SAVE:
                 break;
-            case CAAS_SAVE_LOCAL:
+            case CAAS_SAVE_MODE::SAVE_LOCAL:
                 for (int i = 0; i < (int)graphs.size(); i++) {
                     VLOG(1) << "graph " << i << " save result";
                     graphs[i] -> save_local(local_dir + "/result" + std::to_string(i) + ".txt");
                 }
                 break;
             default:
-                LOG(FATAL) << "save mode " << save_mode << " not implemented";
+                LOG(FATAL) << "save mode " << (int)save_mode << " not implemented";
         }
     }
 

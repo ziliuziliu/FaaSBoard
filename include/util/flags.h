@@ -5,6 +5,7 @@
 #include <vector>
 #include <iostream>
 #include <sstream>
+#include "util/types.h"
 
 DEFINE_string(graph_root_dir, "", "root directory for graph dataset in csr binary");
 DEFINE_string(graph_file, "", "original graph dataset file");
@@ -39,13 +40,14 @@ struct exec_config {
 
     std::string graph_dir, meta_server_addr;
     bool no_pipeline, sparse_only, dense_only;
-    int cores, save_mode;
+    int cores;
+    CAAS_SAVE_MODE save_mode;
 
     exec_config() {}
     
     exec_config(
         std::string graph_dir, std::string meta_server_addr, bool no_pipeline, 
-        bool sparse_only, bool dense_only, int cores, int save_mode
+        bool sparse_only, bool dense_only, int cores, CAAS_SAVE_MODE save_mode
     ):graph_dir(graph_dir), meta_server_addr(meta_server_addr), no_pipeline(no_pipeline),
       sparse_only(sparse_only), dense_only(dense_only), cores(cores), save_mode(save_mode) {}
 

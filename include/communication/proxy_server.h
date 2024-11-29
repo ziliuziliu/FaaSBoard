@@ -143,8 +143,8 @@ public:
         uint32_t *segment = (uint32_t *)raw_data;
         uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
         COMM_TYPE segment_type = caas_segment_get_segment_type(flag);
-        uint8_t data_type = caas_flag_get_data_type(flag);
-        uint8_t reduce_op = caas_flag_get_reduce_op(flag);
+        CAAS_TYPE data_type = caas_flag_get_data_type(flag);
+        CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(flag);
 
         switch(segment_type) {
             case COMM_TYPE::CAAS_MAGIC: {
@@ -185,8 +185,8 @@ public:
     void reduce_segment(char *raw_data, size_t len) {
         uint32_t *segment = (uint32_t *)raw_data;
         uint32_t vec_len = segment[3], flag = segment[4];
-        uint8_t data_type = caas_flag_get_data_type(flag);
-        uint8_t reduce_op = caas_flag_get_reduce_op(flag);
+        CAAS_TYPE data_type = caas_flag_get_data_type(flag);
+        CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(flag);
         reduce_vec(data + 5, segment + 5, vec_len, reduce_op, data_type);
     }
 
@@ -213,7 +213,7 @@ void work(int thread_id) {
         segment_base *segment;
         segment = segment_table[request_id][object_id];
         switch (caas_flag_get_comm_op(flag)) {
-            case CAAS_MASKED_BROADCAST:
+            case CAAS_OP::MASKED_BROADCAST:
                 VLOG(1) << "masked broadcast from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
@@ -223,7 +223,7 @@ void work(int thread_id) {
                 }
                 delete [] raw_data.first;
                 break;
-            case CAAS_MASKED_REDUCE:
+            case CAAS_OP::MASKED_REDUCE:
                 VLOG(1) << "masked reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
@@ -245,7 +245,7 @@ void work(int thread_id) {
                 segment -> m.unlock();
                 delete [] raw_data.first;
                 break;
-            case CAAS_ALLREDUCE:
+            case CAAS_OP::ALLREDUCE:
                 VLOG(1) << "all reduce from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
@@ -266,7 +266,7 @@ void work(int thread_id) {
                 segment -> m.unlock();
                 break;
             default:
-                LOG(FATAL) << "undefined comm op " << caas_flag_get_comm_op(flag);
+                LOG(FATAL) << "undefined comm op " << (uint8_t)caas_flag_get_comm_op(flag);
         }
         cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
     }

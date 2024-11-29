@@ -14,23 +14,23 @@
 #include <unistd.h>
 
 template <class T>
-uint8_t caas_get_data_type() {
+CAAS_TYPE caas_get_data_type() {
     if (std::is_same<int, T>::value) {
-        return CAAS_INT;
+        return CAAS_TYPE::INT;
     } else if (std::is_same<float, T>::value) {
-        return CAAS_FLOAT;
+        return CAAS_TYPE::FLOAT;
     }
-    return CAAS_UINT32;
+    return CAAS_TYPE::UINT32;
 }
 
-uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op) {
+uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op) {
     uint32_t flag = 0;
     flag |= (root << 31);
     flag |= ((instances & 0xf) << 16);
     flag |= ((members & 0xf) << 12);
-    flag |= ((data_type & 0xf) << 8);
-    flag |= ((comm_op & 0xf) << 4);
-    flag |= (reduce_op & 0xf);
+    flag |= (((uint8_t)data_type & 0xf) << 8);
+    flag |= (((uint8_t)comm_op & 0xf) << 4);
+    flag |= ((uint8_t)reduce_op & 0xf);
     return flag;
 }
 
@@ -46,16 +46,16 @@ uint8_t caas_flag_get_members(uint32_t flag) {
     return (flag >> 12) & 0xf;
 }
 
-uint8_t caas_flag_get_data_type(uint32_t flag) {
-    return (flag >> 8) & 0xf;
+CAAS_TYPE caas_flag_get_data_type(uint32_t flag) {
+    return (CAAS_TYPE)((flag >> 8) & 0xf);
 }
 
-uint8_t caas_flag_get_comm_op(uint32_t flag) {
-    return (flag >> 4) & 0xf;
+CAAS_OP caas_flag_get_comm_op(uint32_t flag) {
+    return (CAAS_OP)((flag >> 4) & 0xf);
 }
 
-uint8_t caas_flag_get_reduce_op(uint32_t flag) {
-    return flag & 0xf;
+CAAS_REDUCE_OP caas_flag_get_reduce_op(uint32_t flag) {
+    return (CAAS_REDUCE_OP)(flag & 0xf);
 }
 
 COMM_TYPE caas_segment_get_segment_type(uint32_t flag) {
@@ -120,7 +120,10 @@ public:
     T *vec;
 
     bool has_bitmap, root;
-    uint8_t instances, members, data_type, comm_op, reduce_op;
+    uint8_t instances, members;
+    CAAS_TYPE data_type;
+    CAAS_OP comm_op;
+    CAAS_REDUCE_OP reduce_op;
 
     T base_vertex_value;
     sockaddr_in meta_server;
@@ -132,7 +135,7 @@ public:
     
     comm_object(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_index, 
-        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ) : object_id(object_id), vec_len(vec_len), start_index(start_index), has_bitmap(has_bitmap), 
         root(root), instances(instances), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
@@ -187,7 +190,7 @@ public:
 
     proxy(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ): comm_object<T>(
             object_id, vec_len, has_bitmap, start_vertex, 
@@ -222,15 +225,15 @@ public:
     }
 
     void caas_do() {
-        if (this -> comm_op == CAAS_MASKED_BROADCAST || this -> comm_op == CAAS_MASKED_REDUCE) {
+        if (this -> comm_op == CAAS_OP::MASKED_BROADCAST || this -> comm_op == CAAS_OP::MASKED_REDUCE) {
             if (this -> colocated_member == this -> members) {
-                VLOG(1) << "object " << this -> object_id << " return from " << this -> comm_op;
+                VLOG(1) << "object " << this -> object_id << " return from " << (uint8_t)(this -> comm_op);
                 return;
             }
         }
         if (this -> root) {
             switch (this -> comm_op) {
-                case CAAS_MASKED_BROADCAST: {
+                case CAAS_OP::MASKED_BROADCAST: {
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
@@ -239,25 +242,25 @@ public:
                     }
                     break;
                 }
-                case CAAS_MASKED_REDUCE: {
+                case CAAS_OP::MASKED_REDUCE: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << this -> comm_op;
+                    LOG(FATAL) << "undefined comm op " << (uint8_t)(this -> comm_op);
                     break;
             }
         } else {
             switch (this -> comm_op) {
-                case CAAS_MASKED_BROADCAST: {
+                case CAAS_OP::MASKED_BROADCAST: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
-                case CAAS_MASKED_REDUCE: {
+                case CAAS_OP::MASKED_REDUCE: {
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
@@ -266,7 +269,7 @@ public:
                     }
                     break;
                 }
-                case CAAS_ALLREDUCE: {
+                case CAAS_OP::ALLREDUCE: {
                     std::pair<char *, size_t> send_segment = caas_make_segment(this);
                     caas_send_all(proxy_server_socket, send_segment.first, send_segment.second);
                     std::pair<char *, size_t> recv_segment = caas_recv_all(proxy_server_socket);
@@ -274,7 +277,7 @@ public:
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << this -> comm_op;
+                    LOG(FATAL) << "undefined comm op " << (uint8_t)(this -> comm_op);
                     break;
             }
         }
@@ -284,14 +287,14 @@ public:
 
 template <class T>
 comm_object<T> *caas_make_comm_object(
-    uint8_t comm_type, std::string meta_server_addr, int meta_server_port,
+    CAAS_COMM_MODE comm_type, std::string meta_server_addr, int meta_server_port,
     uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-    bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+    bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
     T base_vertex_value
 ) {
     comm_object<T> *result = nullptr;
     switch (comm_type) {
-        case CAAS_PROXY:
+        case CAAS_COMM_MODE::PROXY:
             result = new proxy<T>(
                 object_id, vec_len, has_bitmap, start_vertex, 
                 root, instances, members, data_type, comm_op, reduce_op,
@@ -419,7 +422,7 @@ template <class T>
 void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
     COMM_TYPE segment_type = caas_segment_get_segment_type(segment[4]);
-    uint8_t reduce_op = caas_flag_get_reduce_op(segment[4]);
+    CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(segment[4]);
 
     switch (segment_type) {
         case COMM_TYPE::CAAS_MAGIC: {
