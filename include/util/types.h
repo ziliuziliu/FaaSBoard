@@ -1,11 +1,15 @@
 #ifndef _TYPES_H
 #define _TYPES_H
 
-#define INCOMING 0
-#define OUTGOING 1
+enum class EDGE_DIRECTION : unsigned int {
+    INCOMING = 0,
+    OUTGOING = 1,
+};
 
-#define WORKING 0
-#define STEALING 1
+enum class WORKER_STATUS : unsigned int {
+    WORKING = 0,
+    STEALING = 1,
+};
 
 #define CAAS_UINT32 0
 #define CAAS_INT 1
@@ -23,7 +27,7 @@
 #define CAAS_S3 1
 #define CAAS_DIRECT 2
 
-enum class COMM_TYPE : int {
+enum class COMM_TYPE : unsigned int {
     CAAS_MAGIC = 0,
     CAAS_PAIR = 1,
     CAAS_SPARSE = 2,

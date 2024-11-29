@@ -327,39 +327,39 @@ public:
         for (int t = 0; t < (int)subgraphs.size(); t++) {
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_dest; i < subgraph -> to_dest; i++) {
-                subgraph -> begin_add_edge(i, INCOMING);
+                subgraph -> begin_add_edge(i, EDGE_DIRECTION::INCOMING);
                 for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
                     if (source >= subgraph -> from_source && source < subgraph -> to_source) {
                         if (!weighted) {
-                            subgraph -> add_edge(source, i, INCOMING);
+                            subgraph -> add_edge(source, i, EDGE_DIRECTION::INCOMING);
                         } else {
                             ewT weight = in_weight[j];
-                            subgraph -> add_edge(source, i, weight, INCOMING);
+                            subgraph -> add_edge(source, i, weight, EDGE_DIRECTION::INCOMING);
                         }
                     }
                 }
             }
-            subgraph -> end_add_edge(INCOMING);
+            subgraph -> end_add_edge(EDGE_DIRECTION::INCOMING);
         }
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_source; i < subgraph -> to_source; i++) {
-                subgraph -> begin_add_edge(i, OUTGOING);
+                subgraph -> begin_add_edge(i, EDGE_DIRECTION::OUTGOING);
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest) {
                         if (!weighted) {
-                            subgraph -> add_edge(i, dest, OUTGOING);
+                            subgraph -> add_edge(i, dest, EDGE_DIRECTION::OUTGOING);
                         } else {
                             ewT weight = out_weight[j];
-                            subgraph -> add_edge(i, dest, weight, OUTGOING);
+                            subgraph -> add_edge(i, dest, weight, EDGE_DIRECTION::OUTGOING);
                         }
                     }
                 }
             }
-            subgraph -> end_add_edge(OUTGOING);
+            subgraph -> end_add_edge(EDGE_DIRECTION::OUTGOING);
         }
         for (int i = 0; i < (int)subgraphs.size(); i++) {
             subgraphs[i] -> set_in_degree(in_degree + subgraphs[i] -> from_dest);

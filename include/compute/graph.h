@@ -29,14 +29,16 @@ struct thread_state {
 
     std::atomic<uint32_t> curr;
 
-    uint32_t end, state;
+    uint32_t end;
+
+    WORKER_STATUS state;
 
     thread_state() {}
 
     thread_state(uint32_t curr, uint32_t end) {
         std::atomic_init(&this -> curr, curr);
         this -> end = end;
-        this -> state = WORKING;
+        this -> state = WORKER_STATUS::WORKING;
     }
 
 };
@@ -173,10 +175,10 @@ public:
                 uint32_t end = begin + 64 > thread_states[index] -> end ? thread_states[index] -> end : begin + 64;
                 selected(round, begin, end);
             }
-            thread_states[index] -> state = STEALING;
+            thread_states[index] -> state = WORKER_STATUS::STEALING;
             for (int offset = 1; offset < config -> cores; offset++) {
                 int new_index = (index + offset) % config -> cores;
-                if (thread_states[new_index] -> state == STEALING) {
+                if (thread_states[new_index] -> state == WORKER_STATUS::STEALING) {
                     continue;
                 }
                 while (true) {
