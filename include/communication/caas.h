@@ -26,7 +26,7 @@ uint8_t caas_get_data_type() {
 uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op) {
     uint32_t flag = 0;
     flag |= (root << 31);
-    flag |= ((instances & 0xf) << 16);
+    flag |= ((instances & 0xff) << 16);
     flag |= ((members & 0xf) << 12);
     flag |= ((data_type & 0xf) << 8);
     flag |= ((comm_op & 0xf) << 4);
@@ -43,7 +43,7 @@ uint8_t caas_flag_get_instances(uint32_t flag) {
 }
 
 uint8_t caas_flag_get_members(uint32_t flag) {
-    return (flag >> 12) & 0xf;
+    return (flag >> 16) & 0xff;
 }
 
 uint8_t caas_flag_get_data_type(uint32_t flag) {
