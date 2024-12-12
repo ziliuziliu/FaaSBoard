@@ -39,11 +39,11 @@ bool caas_flag_get_root(uint32_t flag) {
 }
 
 uint8_t caas_flag_get_instances(uint32_t flag) {
-    return (flag >> 16) & 0xf;
+    return (flag >> 16) & 0xff;
 }
 
 uint8_t caas_flag_get_members(uint32_t flag) {
-    return (flag >> 16) & 0xff;
+    return (flag >> 12) & 0xf;
 }
 
 uint8_t caas_flag_get_data_type(uint32_t flag) {
