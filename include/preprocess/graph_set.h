@@ -273,7 +273,7 @@ public:
                 graph_meta["from_dest"] = graph -> from_dest;
                 graph_meta["to_dest"] = graph -> to_dest;
                 graph_meta["edges"] = graph -> edges;
-                comm_meta["comm_type"] = CAAS_PROXY;
+                comm_meta["comm_type"] = CAAS_COMM_MODE::PROXY;
                 comm_meta["recv"] = std::vector<json>();
                 for (int j = 0; j < (int)cuts.size() - 1; j++) {
                     if (cuts[j] >= graph -> from_source && cuts[j] < graph -> to_source) {

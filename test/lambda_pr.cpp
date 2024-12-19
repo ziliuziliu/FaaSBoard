@@ -17,7 +17,7 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     bool no_pipeline = request["no_pipeline"];
     bool sparse_only = request["sparse_only"];
     bool dense_only = request["dense_only"];
-    int save_mode = request["save_mode"];
+    CAAS_SAVE_MODE save_mode = request["save_mode"];
     uint32_t request_id = request["request_id"];
     uint32_t pr_iterations = request["pr_iterations"];
     exec_config *config = new exec_config(

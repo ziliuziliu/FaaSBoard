@@ -29,14 +29,16 @@ struct thread_state {
 
     std::atomic<uint32_t> curr;
 
-    uint32_t end, state;
+    uint32_t end;
+
+    WORKER_STATUS state;
 
     thread_state() {}
 
     thread_state(uint32_t curr, uint32_t end) {
         std::atomic_init(&this -> curr, curr);
         this -> end = end;
-        this -> state = WORKING;
+        this -> state = WORKER_STATUS::WORKING;
     }
 
 };
@@ -54,7 +56,7 @@ public:
     ewT *in_weight, *out_weight;
     comm_object<vwT> *in_segment, *out_segment;
     comm_object<uint32_t> *vote_object;
-    uint8_t reduce_op;
+    CAAS_REDUCE_OP reduce_op;
     vwT base_vertex_value;
     std::function<int(graph<vwT, ewT> *, uint32_t)> begin_func;
     std::function<
@@ -67,7 +69,7 @@ public:
 
     graph(
         int index, graph_meta g_meta, uint32_t from_source, uint32_t to_source, uint32_t from_dest, uint32_t to_dest, 
-        uint32_t edges, uint8_t reduce_op, vwT base_vertex_value, exec_config *config
+        uint32_t edges, CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config
     ) : g_meta(g_meta), from_source(from_source), to_source(to_source), from_dest(from_dest), to_dest(to_dest), 
         edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value), config(config) {
         weighted = !std::is_same<ewT, void *>::value;
@@ -173,10 +175,10 @@ public:
                 uint32_t end = begin + 64 > thread_states[index] -> end ? thread_states[index] -> end : begin + 64;
                 selected(round, begin, end);
             }
-            thread_states[index] -> state = STEALING;
+            thread_states[index] -> state = WORKER_STATUS::STEALING;
             for (int offset = 1; offset < config -> cores; offset++) {
                 int new_index = (index + offset) % config -> cores;
-                if (thread_states[new_index] -> state == STEALING) {
+                if (thread_states[new_index] -> state == WORKER_STATUS::STEALING) {
                     continue;
                 }
                 while (true) {
