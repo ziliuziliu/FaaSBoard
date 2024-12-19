@@ -248,29 +248,35 @@ public:
                 uint32_t workload_limit = check_list[t];
                 bool plan_satisfy_limit = true;
                 for (uint32_t i = 0; i < meta.total_v; i++) {
-                    int cut_p = 0, block_p = -1, current_cut = cuts.size(), diagonal = 0;
+                    int current_cut = cuts.size(), diagonal = 0;
                     std::fill(in_workload.begin(), in_workload.end(), 0);
                     std::fill(out_workload.begin(), out_workload.end(), 0);
                     for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                         uint32_t dest = out_dest[j];
                         if (dest == i) diagonal = 1;
-                        if (dest >= i) break;
-                        while (cut_p < (int)cuts.size() && dest >= cuts[cut_p]) {
-                            cut_p++;
-                            block_p++;
+                        if (dest >= i) continue;
+                        for (int k = 0; k < current_cut; k++) {
+                            if (k == current_cut - 1) {
+                                out_workload[k]++;
+                                break;
+                            } else if (cuts[k] <= dest && dest < cuts[k + 1]) {
+                                out_workload[k]++;
+                                break;
+                            }
                         }
-                        out_workload[block_p]++;
                     }
-                    cut_p = 0; 
-                    block_p = -1;
                     for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                         uint32_t source = in_source[j];
-                        if (source >= i) break;
-                        while (cut_p < (int)cuts.size() && source >= cuts[cut_p]) {
-                            cut_p++;
-                            block_p++;
+                        if (source >= i) continue;
+                        for (int k = 0; k < current_cut; k++) {
+                            if (k == current_cut - 1) {
+                                in_workload[k]++;
+                                break;
+                            } else if (cuts[k] <= source && source < cuts[k + 1]) {
+                                in_workload[k]++;
+                                break;
+                            }
                         }
-                        in_workload[block_p]++;
                     }
                     bool block_satisfy_limit = true;
                     for (int j = 0; j < current_cut - 1; j++)
