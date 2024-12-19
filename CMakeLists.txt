@@ -37,7 +37,14 @@ add_executable(lambda_pr ${CMAKE_SOURCE_DIR}/test/lambda_pr.cpp)
 add_executable(meta_server ${CMAKE_SOURCE_DIR}/test/meta_server.cpp)
 add_executable(proxy_server ${CMAKE_SOURCE_DIR}/test/proxy_server.cpp)
 add_executable(correctness_test ${CMAKE_SOURCE_DIR}/test/others/correctness_test.cpp)
+add_executable(txt2csr ${CMAKE_SOURCE_DIR}/test/preprocess/txt2csr.cpp)
 
+# add_executable(row ${CMAKE_SOURCE_DIR}/test/preprocess/row.cpp)
+# add_executable(column ${CMAKE_SOURCE_DIR}/test/preprocess/column.cpp)
+# add_executable(naive_cyclic ${CMAKE_SOURCE_DIR}/test/preprocess/naive_cyclic.cpp)
+# add_executable(naive_stagger ${CMAKE_SOURCE_DIR}/test/preprocess/naive_stagger.cpp)
+# add_executable(mondriaan_row_column ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_row_column.cpp)
+# add_executable(mondriaan_column_row ${CMAKE_SOURCE_DIR}/test/preprocess/mondriaan_column_row.cpp)
 # Link
 target_link_libraries(preprocess_and_save PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 target_link_libraries(local_bfs PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
@@ -47,6 +54,14 @@ target_link_libraries(lambda_pr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags AWS
 target_link_libraries(meta_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 target_link_libraries(proxy_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 target_link_libraries(correctness_test PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+target_link_libraries(txt2csr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+
+# target_link_libraries(row PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+# target_link_libraries(column PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+# target_link_libraries(naive_cyclic PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+# target_link_libraries(naive_stagger PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+# target_link_libraries(mondriaan_row_column PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
+# target_link_libraries(mondriaan_column_row PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 
 # create zip
 aws_lambda_package_target(lambda_bfs)

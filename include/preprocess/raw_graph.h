@@ -5,6 +5,7 @@
 #include "graph_set.h"
 #include "partition.h"
 #include "util/io.h"
+#include "util/timer.h"
 
 #include <algorithm>
 #include <string>
@@ -72,6 +73,8 @@ public:
     }
 
     partition_result row_partition(int total_block) {
+        timer t;
+        t.tick("partition time");
         partition_result result;
         uint64_t current_edges = 0, previous_from_source = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
@@ -83,10 +86,13 @@ public:
             current_edges += out_offset[i + 1] - out_offset[i];
         }
         result.add(previous_from_source, meta.total_v, 0, meta.total_v, current_edges);
+        t.from_tick();
         return result;
     }
 
     partition_result column_partition(int total_block) {
+        timer t;
+        t.tick("partition time");
         partition_result result;
         uint64_t current_edges = 0, previous_from_dest = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
@@ -98,12 +104,15 @@ public:
             current_edges += in_offset[i + 1] - in_offset[i];
         }
         result.add(0, meta.total_v, previous_from_dest, meta.total_v, current_edges);
+        t.from_tick();
         return result;
     }
 
     // require total_block to be square number
     partition_result mondriaan_partition_row_column(int total_block) {
-        LOG(FATAL) << "the partition must be regular, fix this!";
+        VLOG(1) << "mondriaan_partition_row_column the partition must be regular, fix this!";
+        timer t;
+        t.tick("partition time");
         int cut = sqrt(total_block);
         partition_result row_result = row_partition(cut);
         partition_result final_result;
@@ -134,12 +143,15 @@ public:
                 final_result.add(block.from_source, block.to_source, previous_from_dest, meta.total_v, accum_edges);
             }
         }
+        t.from_tick();
         return final_result;
     }
 
     // require total_block to be square number
     partition_result mondriaan_partition_column_row(int total_block) {
-        LOG(FATAL) << "the partition must be regular, fix this!";
+        VLOG(1) << "mondriaan_partition_column_row the partition must be regular, fix this!";
+        timer t;
+        t.tick("partition time");
         int cut = sqrt(total_block);
         partition_result column_result = column_partition(cut);
         partition_result final_result;
@@ -170,6 +182,7 @@ public:
                 final_result.add(previous_from_source, meta.total_v, block.from_dest, block.to_dest, accum_edges);
             }
         }
+        t.from_tick();
         return final_result;
     }
 
@@ -202,6 +215,8 @@ public:
     }
 
     partition_result naive_checkerboard_partition(int cut) {
+        timer t;
+        t.tick("partition time");
         std::vector<uint32_t> cuts;
         uint32_t offset = 0;
         for (int i = 0; i < (int)meta.total_v % cut; i++) {
@@ -213,6 +228,7 @@ public:
             offset += meta.total_v / cut;
         }
         cuts.push_back(offset);
+        t.from_tick();
         return generate_checkerboard_partition_from_cuts(cut, cuts);
     }
 
@@ -236,6 +252,8 @@ public:
     }
 
     partition_result checkerboard_partition(int cut) {
+        timer t;
+        t.tick("partition time");
         uint32_t left = 1, right = meta.total_e;
         std::vector<uint32_t> result_cuts(cut + 1);
         while ((double)(right - left) / right >= 0.01) {
@@ -322,6 +340,7 @@ public:
             }
         }
         result_cuts[cut] = meta.total_v;
+        t.from_tick();
         return generate_checkerboard_partition_from_cuts(cut, result_cuts);
     }
 
