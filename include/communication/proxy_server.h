@@ -266,7 +266,7 @@ void work(int thread_id) {
                 segment -> m.unlock();
                 break;
             default:
-                LOG(FATAL) << "undefined comm op " << (uint8_t)caas_flag_get_comm_op(flag);
+                LOG(FATAL) << "undefined comm op " << (int)caas_flag_get_comm_op(flag);
         }
         cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
     }

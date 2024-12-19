@@ -19,8 +19,10 @@ CAAS_TYPE caas_get_data_type() {
         return CAAS_TYPE::INT;
     } else if (std::is_same<float, T>::value) {
         return CAAS_TYPE::FLOAT;
+    } else if (std::is_same<uint32_t, T>::value) {
+        return CAAS_TYPE::UINT32;
     }
-    return CAAS_TYPE::UINT32;
+    LOG(FATAL) << "unimplemented type";
 }
 
 uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op) {
@@ -227,7 +229,7 @@ public:
     void caas_do() {
         if (this -> comm_op == CAAS_OP::MASKED_BROADCAST || this -> comm_op == CAAS_OP::MASKED_REDUCE) {
             if (this -> colocated_member == this -> members) {
-                VLOG(1) << "object " << this -> object_id << " return from " << (uint8_t)(this -> comm_op);
+                VLOG(1) << "object " << this -> object_id << " return from " << (int)(this -> comm_op);
                 return;
             }
         }
@@ -249,7 +251,7 @@ public:
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << (uint8_t)(this -> comm_op);
+                    LOG(FATAL) << "undefined comm op " << (int)(this -> comm_op);
                     break;
             }
         } else {
@@ -277,7 +279,7 @@ public:
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << (uint8_t)(this -> comm_op);
+                    LOG(FATAL) << "undefined comm op " << (int)(this -> comm_op);
                     break;
             }
         }
