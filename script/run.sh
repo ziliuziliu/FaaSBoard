@@ -111,15 +111,15 @@ elif [[ "$MODE" == "aws" ]]; then
 {
   "graph_dir": "graph",
   "result_dir": "/tmp",
-  "meta_server": "$META_SERVER_IP",
-  "cores": $CORES,
+  "meta_server": "172.31.12.143",
+  "cores": 2,
   "no_pipeline": false,
-  "sparse_only": $SPARSE_ONLY,
-  "dense_only": $DENSE_ONLY,
+  "sparse_only": true,
+  "dense_only": false,
   "save_mode": 2,
   "s3_bucket": "ziliuziliu",
-  "request_id": $REQUEST_ID,
-  "bfs_root": $BFS_ROOT
+  "request_id": 123,
+  "bfs_root": 0
 }
 EOF
 )

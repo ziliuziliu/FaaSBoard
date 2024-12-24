@@ -53,6 +53,12 @@ aws lambda invoke --function-name bfs_3 --payload '{"graph_dir": "graph", "meta_
 aws lambda invoke --function-name bfs_4 --payload '{"graph_dir": "graph", "meta_server": "172.31.12.143", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 0, "request_id": 123, "bfs_root": 0}' result4.txt & \
 aws lambda invoke --function-name bfs_5 --payload '{"graph_dir": "graph", "meta_server": "172.31.12.143", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 0, "request_id": 123, "bfs_root": 0}' result5.txt &
 
+13. run script to launch local application or lambda function(under /build)
+#aws lambda
+../script/run.sh -mode aws -app <bfs/pr>  # Other parameters can be directly changed in payload of run.sh
+#local test
+../script/run.sh -mode local -app <bfs / pr> -graph <livejournal / twitter-2010-balance> # Other parameters can be accepted just like the original command above 
+
 ./meta_server -proxy_server_list 172.31.12.143 --v 1
 ./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
 sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/0 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 --v 1 > 0.txt 2>&1 & \
