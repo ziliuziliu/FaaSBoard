@@ -2,6 +2,7 @@
 #define _FLAGS_H
 
 #include "util/types.h"
+#include "util/log.h"
 
 #include <gflags/gflags.h>
 #include <vector>
@@ -25,7 +26,7 @@ DEFINE_bool(no_pipeline, false, "no in-exec_each-out-exec_diagonal pipeline");
 DEFINE_int32(partitions, 0, "how many functions to hold the graph");
 DEFINE_bool(sparse_only, false, "sparse mode");
 DEFINE_bool(dense_only, false, "dense mode");
-DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");\
+DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");
 DEFINE_string(s3_bucket, "", "s3 bucket name");
 
 std::vector<std::string> parse_proxy_server_list() {
@@ -50,12 +51,20 @@ struct exec_config {
         std::string graph_dir, std::string result_dir, std::string meta_server_addr, std::string s3_bucket, 
         bool no_pipeline, bool sparse_only, bool dense_only, int cores, int save_mode
     ):graph_dir(graph_dir), result_dir(result_dir), meta_server_addr(meta_server_addr), s3_bucket(s3_bucket), 
-      no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), cores(cores), save_mode(save_mode) {}
+      no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), cores(cores), save_mode(save_mode) {
+        check();
+    }
+
+    void check() {
+        if (enable_s3() && s3_bucket == "") {
+            LOG(FATAL) << "need to provide s3 bucket name";
+        }
+    }
+
+    bool enable_s3() {
+        return save_mode == CAAS_SAVE_S3;
+    }
 
 };
-
-bool enable_s3() {
-    return FLAGS_save_mode == CAAS_SAVE_S3;
-}
 
 #endif

@@ -28,7 +28,7 @@ public:
 
     graph_set(uint8_t reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
-        if (enable_s3()) {
+        if (config -> enable_s3()) {
             s3_init();
         }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");

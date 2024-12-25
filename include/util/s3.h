@@ -39,7 +39,10 @@ std::vector<std::string> s3_list_objects(std::string bucket_name) {
         }
         auto outcome = s3_client -> ListObjectsV2(request);
         if (!outcome.IsSuccess()) {
-            LOG(FATAL) << "error listing objects from bucket " << bucket_name;
+            const auto& error = outcome.GetError();
+            LOG(FATAL) << "error listing objects from bucket " << bucket_name
+                       << " exception " << error.GetExceptionName()
+                       << " message " << error.GetMessage();
         }
         Aws::Vector<Aws::S3::Model::Object> objects = outcome.GetResult().GetContents();
         all_objects.insert(all_objects.end(), objects.begin(), objects.end());
@@ -58,7 +61,11 @@ void s3_check_object_freshness(std::string bucket_name, std::string object_name)
     request.SetKey(object_name);
     auto outcome = s3_client -> HeadObject(request);
     if (!outcome.IsSuccess()) {
-        LOG(FATAL) << "error checking freshness for object " << object_name << " on bucket " << bucket_name;
+        const auto& error = outcome.GetError();
+        LOG(FATAL) << "error checking freshness for object " << object_name
+                   << " on bucket " << bucket_name
+                   << " exception " << error.GetExceptionName()
+                   << " message " << error.GetMessage();
     }
     auto last_modified = outcome.GetResult().GetLastModified();
     auto current = Aws::Utils::DateTime::Now();
@@ -72,7 +79,11 @@ void s3_get_object_to_file(std::string bucket_name, std::string object_name, std
     request.SetKey(object_name);
     Aws::S3::Model::GetObjectOutcome outcome = s3_client -> GetObject(request);
     if (!outcome.IsSuccess()) {
-        LOG(FATAL) << "error getting object " << object_name << " from bucket " << bucket_name;
+        const auto& error = outcome.GetError();
+        LOG(FATAL) << "error getting object " << object_name
+                   << " on bucket " << bucket_name
+                   << " exception " << error.GetExceptionName()
+                   << " message " << error.GetMessage();        
     }
     auto &data = outcome.GetResult().GetBody();
     std::ofstream local_file(file_path, std::ios_base::binary);
@@ -93,7 +104,11 @@ void s3_put_object_from_file(std::string bucket_name, std::string object_name, s
     request.SetBody(input_data);
     Aws::S3::Model::PutObjectOutcome outcome = s3_client -> PutObject(request);
     if (!outcome.IsSuccess()) {
-        LOG(FATAL) << "error putting object " << object_name << " to bucket " << bucket_name;
+        const auto& error = outcome.GetError();
+        LOG(FATAL) << "error putting object " << object_name
+                   << " on bucket " << bucket_name
+                   << " exception " << error.GetExceptionName()
+                   << " message " << error.GetMessage();
     }
 }
 
