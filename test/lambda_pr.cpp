@@ -12,7 +12,9 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     json payload = json::parse(req.payload);
     json request = json::parse(std::string(payload["body"]));
     std::string graph_dir = request["graph_dir"];
+    std::string result_dir = request["result_dir"];
     std::string meta_server_addr = request["meta_server"];
+    std::string s3_bucket = request["s3_bucket"];
     uint32_t cores = request["cores"];
     bool no_pipeline = request["no_pipeline"];
     bool sparse_only = request["sparse_only"];
@@ -21,7 +23,8 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     uint32_t request_id = request["request_id"];
     uint32_t pr_iterations = request["pr_iterations"];
     exec_config *config = new exec_config(
-        graph_dir, meta_server_addr, no_pipeline, sparse_only, dense_only, cores, save_mode
+        graph_dir, result_dir, meta_server_addr, s3_bucket,
+        no_pipeline, sparse_only, dense_only, cores, save_mode
     );
     pagerank(request_id, pr_iterations, config);
     return lambda::invocation_response::success("pagerank success", "application/json");

@@ -7,6 +7,7 @@
 #include "util/types.h"
 #include "util/json.h"
 #include "util/flags.h"
+#include "util/s3.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -261,17 +262,33 @@ public:
         return vote_object -> vec[0];
     }
 
-    void save_local(std::string local_path) {
-        std::ofstream file(local_path);
-        if (!file.is_open()) {
-            LOG(FATAL) << "could not open the file " << local_path;
-        }
+    std::string get_result_file_name(uint32_t start, uint32_t end) {
+        return "result_" + std::to_string(start) + "_" + std::to_string(end) + ".txt";
+    }
+
+    void save_local() {
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
-            save_result_util<vwT>(file, start, end, in_segment -> vec);
+            save_result_util<vwT>(
+                config -> result_dir + "/" + get_result_file_name(start, end), 
+                start, end, in_segment -> vec
+            );
         }
     }
+
+    void save_s3() {
+        if (check_diagonal()) {
+            uint32_t start = in_segment -> start_index;
+            uint32_t end = in_segment -> start_index + in_segment -> vec_len;
+            save_local();
+            s3_put_object_from_file(
+                config -> s3_bucket, 
+                get_result_file_name(start, end),
+                config -> result_dir + "/" + get_result_file_name(start, end)
+            );
+        }
+    } 
 };
 
 #endif

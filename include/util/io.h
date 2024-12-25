@@ -6,6 +6,8 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <filesystem>
+#include <chrono>
 
 void parse_line(char *line, int line_size, uint32_t *x, uint32_t *y) {
     *x = *y = 0;
@@ -188,12 +190,46 @@ void save_csr_util(
     VLOG(1) << "end saving csr";
 }
 
-template<class T>
-void save_result_util(std::ofstream &file, uint32_t start, uint32_t end, T *vec) {
-    for (uint32_t v = start; v < end; v++) {
-        T val = vec[v - start];
-        file << v << " " << val << std::endl;
+void check_result_freshness(std::string result_path) {
+    auto last_write_time = std::filesystem::last_write_time(result_path);
+    auto last_write_time_system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
+        last_write_time - decltype(last_write_time)::clock::now() + std::chrono::system_clock::now()
+    );
+    auto current_time = std::chrono::system_clock::now();
+    auto diff_time = std::chrono::duration_cast<std::chrono::minutes>(current_time - last_write_time_system).count();
+    CHECK(diff_time <= 30) << "result file is generated long time ago";
+}
+
+template <class T>
+void read_result_util(std::string result_path, T *vec) {
+    std::ifstream result_file(result_path);
+    if (!result_file.is_open()) {
+        LOG(FATAL) << "unable to open file " << result_path;
     }
+    std::string line;
+    while (std::getline(result_file, line)) {
+        std::istringstream iss(line);
+        uint32_t a;
+        T b;
+        if (iss >> a >> b) {
+            vec[a] = b;
+        } else {
+            LOG(FATAL) << "error parsing line " << line;
+        }
+    }
+}
+
+template<class T>
+void save_result_util(std::string result_path, uint32_t start, uint32_t end, T *vec) {
+    std::filesystem::remove(result_path);
+    std::ofstream result_file(result_path);
+    if (!result_file.is_open()) {
+        LOG(FATAL) << "unable to open file " << result_path;
+    }
+    for (uint32_t v = start; v < end; v++) {
+        result_file << v << " " << vec[v - start] << std::endl;
+    }
+    result_file.close();
 }
 
 #endif

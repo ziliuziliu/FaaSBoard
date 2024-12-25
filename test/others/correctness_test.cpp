@@ -1,6 +1,7 @@
 #include "preprocess/raw_graph.h"
 #include "util/log.h"
 #include "util/flags.h"
+#include "util/s3.h"
 
 #include <cstring>
 #include <queue>
@@ -60,45 +61,38 @@ float *pagerank(raw_graph<empty> *g, uint32_t total_v, int iterations) {
 }
 
 template <class T>
-T *read_result(std::string graph_root_dir, uint32_t total_v) {
-    fs::path root_path(graph_root_dir);
+T *read_result_from_file(std::string result_dir, uint32_t total_v) {
     T *result = new T[total_v];
-    int dir_index = 0;
-    for (;;) {
-        if (!fs::exists(root_path / std::to_string(dir_index))) {
-            break;
-        }
-        int file_index = 0;
-        for (;;) {
-            fs::path result_file_path = root_path / std::to_string(dir_index) / ("result" + std::to_string(file_index) + ".txt");
-            if (!fs::exists(result_file_path)) {
-                break;
-            }
-            auto last_write_time = fs::last_write_time(result_file_path);
-            auto last_write_time_system = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                last_write_time - decltype(last_write_time)::clock::now() + std::chrono::system_clock::now()
-            );
-            auto current_time = std::chrono::system_clock::now();
-            auto diff_time = std::chrono::duration_cast<std::chrono::minutes>(current_time - last_write_time_system).count();
-            CHECK(diff_time <= 30) << "result file is generated long time ago";
-            std::ifstream result_file(result_file_path);
-            std::string line;
-            while (std::getline(result_file, line)) {
-                std::istringstream iss(line);
-                uint32_t a;
-                T b;
-                if (iss >> a >> b) {
-                    result[a] = b;
-                } else {
-                    LOG(FATAL) << "error parsing line " << line;
-                }
-            }
-            file_index++;
-        }   
-        dir_index++;
+    for (const auto &entry : fs::directory_iterator(result_dir)) {
+        check_result_freshness(entry.path());
+        read_result_util<T>(entry.path(), result);
     }
     VLOG(1) << "result top 100: " << log_array<T>(result, 100).str();
     return result;
+}
+
+void read_result_from_s3() {
+    std::vector<std::string> objects = s3_list_objects(FLAGS_s3_bucket);
+    for (auto object : objects) {
+        s3_check_object_freshness(FLAGS_s3_bucket, object);
+        s3_get_object_to_file(FLAGS_s3_bucket, object, FLAGS_result_dir + "/" + object);
+    }
+}
+
+template <class T>
+T *read_result(exec_config *config, std::string result_dir, uint32_t total_v) {
+    switch (config -> save_mode) {
+        case CAAS_SAVE_MODE::NO_SAVE:
+            break;
+        case CAAS_SAVE_MODE::SAVE_LOCAL:
+            return read_result_from_file<T>(result_dir, total_v);
+        case CAAS_SAVE_MODE::SAVE_S3:
+            read_result_from_s3();
+            return read_result_from_file<T>(result_dir, total_v);
+        default:
+            LOG(FATAL) << "save mode " << FLAGS_save_mode << " not implemented";
+    }
+    return nullptr;
 }
 
 template <class T>
@@ -119,15 +113,24 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = 1;
-    raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
-    g.read_txt(FLAGS_graph_file, FLAGS_undirected);
+    exec_config *config = new exec_config(
+        FLAGS_graph_dir, FLAGS_result_dir, FLAGS_meta_server, FLAGS_s3_bucket,
+        FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode
+    );
+    if (config -> enable_s3()) {
+        s3_init();
+    }
     if (FLAGS_application == "bfs") {
+        uint32_t *dis2 = read_result<uint32_t>(config, FLAGS_result_dir, FLAGS_vertices);
+        raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
+        g.read_txt(FLAGS_graph_file, false);
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
-        uint32_t *dis2 = read_result<uint32_t>(FLAGS_graph_root_dir, FLAGS_vertices);
         check_equal<uint32_t>(FLAGS_vertices, dis1, dis2);
     } else if (FLAGS_application == "pr") {
+        float *pr2 = read_result<float>(config, FLAGS_result_dir, FLAGS_vertices);
+        raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
+        g.read_txt(FLAGS_graph_file, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
-        float *pr2 = read_result<float>(FLAGS_graph_root_dir, FLAGS_vertices);
         check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
     }
     VLOG(1) << "Freshness Check (<=30min) Passed";   
