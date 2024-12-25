@@ -8,6 +8,7 @@
 #include <vector>
 #include <iostream>
 #include <sstream>
+#include "util/types.h"
 
 DEFINE_string(graph_root_dir, ".", "root directory for graph dataset in csr binary");
 DEFINE_string(graph_file, "", "original graph dataset file");
@@ -28,6 +29,7 @@ DEFINE_bool(sparse_only, false, "sparse mode");
 DEFINE_bool(dense_only, false, "dense mode");
 DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");
 DEFINE_string(s3_bucket, "", "s3 bucket name");
+DEFINE_bool(undirected, false, "whether it's undirected graph (0: directed, 1: undirected)");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);
@@ -43,13 +45,14 @@ struct exec_config {
 
     std::string graph_dir, result_dir, meta_server_addr, s3_bucket;
     bool no_pipeline, sparse_only, dense_only;
-    int cores, save_mode;
+    int cores;
+    CAAS_SAVE_MODE save_mode;
 
     exec_config() {}
     
     exec_config(
         std::string graph_dir, std::string result_dir, std::string meta_server_addr, std::string s3_bucket, 
-        bool no_pipeline, bool sparse_only, bool dense_only, int cores, int save_mode
+        bool no_pipeline, bool sparse_only, bool dense_only, int cores, CAAS_SAVE_MODE save_mode
     ):graph_dir(graph_dir), result_dir(result_dir), meta_server_addr(meta_server_addr), s3_bucket(s3_bucket), 
       no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), cores(cores), save_mode(save_mode) {
         check();
@@ -62,7 +65,7 @@ struct exec_config {
     }
 
     bool enable_s3() {
-        return save_mode == CAAS_SAVE_S3;
+        return save_mode == CAAS_SAVE_MODE::SAVE_S3;
     }
 
 };

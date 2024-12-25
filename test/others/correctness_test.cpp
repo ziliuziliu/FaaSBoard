@@ -80,13 +80,13 @@ void read_result_from_s3() {
 }
 
 template <class T>
-T *read_result(std::string result_dir, uint32_t total_v) {
-    switch (FLAGS_save_mode) {
-        case CAAS_NO_SAVE:
+T *read_result(exec_config *config, std::string result_dir, uint32_t total_v) {
+    switch (config -> save_mode) {
+        case CAAS_SAVE_MODE::NO_SAVE:
             break;
-        case CAAS_SAVE_LOCAL:
+        case CAAS_SAVE_MODE::SAVE_LOCAL:
             return read_result_from_file<T>(result_dir, total_v);
-        case CAAS_SAVE_S3:
+        case CAAS_SAVE_MODE::SAVE_S3:
             read_result_from_s3();
             return read_result_from_file<T>(result_dir, total_v);
         default:
@@ -115,21 +115,21 @@ int main(int argc, char *argv[]) {
     FLAGS_logtostderr = 1;
     exec_config *config = new exec_config(
         FLAGS_graph_dir, FLAGS_result_dir, FLAGS_meta_server, FLAGS_s3_bucket,
-        FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_cores, FLAGS_save_mode
+        FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode
     );
     if (config -> enable_s3()) {
         s3_init();
     }
     if (FLAGS_application == "bfs") {
-        uint32_t *dis2 = read_result<uint32_t>(FLAGS_result_dir, FLAGS_vertices);
+        uint32_t *dis2 = read_result<uint32_t>(config, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
-        g.read_txt(FLAGS_graph_file);
+        g.read_txt(FLAGS_graph_file, false);
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         check_equal<uint32_t>(FLAGS_vertices, dis1, dis2);
     } else if (FLAGS_application == "pr") {
-        float *pr2 = read_result<float>(FLAGS_result_dir, FLAGS_vertices);
+        float *pr2 = read_result<float>(config, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
-        g.read_txt(FLAGS_graph_file);
+        g.read_txt(FLAGS_graph_file, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
         check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
     }

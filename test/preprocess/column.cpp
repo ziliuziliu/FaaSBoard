@@ -6,19 +6,18 @@
 
 #include <cstring>
 
-int main() {
-
-    raw_graph<empty> g(41652230, 1468365182);
-    g.read_csr("/data/twitter-2010.csr.in", "/data/twitter-2010.csr.out");
-
+int main(int argc, char *argv[]) {
+    google::InitGoogleLogging(argv[0]);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    FLAGS_logtostderr = 1;
+    raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
+    g.read_csr(FLAGS_graph_file + ".csr.in", FLAGS_graph_file + ".csr.out");
     partition_result result;
     std::vector<graph_set<empty> *> graphsets;
-    int total_block = 16;
-
+    int total_block = FLAGS_partitions;
     VLOG(1) << "column cut";
     result = g.column_partition(total_block);
     graphsets = g.partition(result);
     graph_set<empty>::simulation(graphsets);
-
     return 0;
 }

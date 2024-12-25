@@ -75,37 +75,37 @@ public:
         return u >= from_source && u < to_source && v >= from_dest && v < to_dest;
     }
 
-    void begin_add_edge(uint32_t v, int direction) {
-        if (direction == OUTGOING && v != from_source)
+    void begin_add_edge(uint32_t v, EDGE_DIRECTION direction) {
+        if (direction == EDGE_DIRECTION::OUTGOING && v != from_source)
             out_offset[v - from_source] = out_offset[v - 1 - from_source];
-        else if (direction == INCOMING && v != from_dest)
+        else if (direction == EDGE_DIRECTION::INCOMING && v != from_dest)
             in_offset[v - from_dest] = in_offset[v - 1 - from_dest];
     }    
 
-    void add_edge(uint32_t u, uint32_t v, int direction) {
-        if (direction == OUTGOING)
+    void add_edge(uint32_t u, uint32_t v, EDGE_DIRECTION direction) {
+        if (direction == EDGE_DIRECTION::OUTGOING)
             out_dest[out_offset[u - from_source]++] = v;
-        else if (direction == INCOMING)
+        else if (direction == EDGE_DIRECTION::INCOMING)
             in_source[in_offset[v - from_dest]++] = u;
     }
 
-    void add_edge(uint32_t u, uint32_t v, ewT w, int direction) {
-        if (direction == OUTGOING) {
+    void add_edge(uint32_t u, uint32_t v, ewT w, EDGE_DIRECTION direction) {
+        if (direction == EDGE_DIRECTION::OUTGOING) {
             out_dest[out_offset[u - from_source]] = v;
             out_weight[out_offset[u - from_source]++] = w;
         }
-        else if (direction == INCOMING) {
+        else if (direction == EDGE_DIRECTION::INCOMING) {
             in_source[in_offset[v - from_dest]] = u;
             in_weight[in_offset[v - from_dest]++] = w;
         }
     }
 
-    void end_add_edge(int direction) {
-        if (direction == OUTGOING) {
+    void end_add_edge(EDGE_DIRECTION direction) {
+        if (direction == EDGE_DIRECTION::OUTGOING) {
             for (uint32_t i = to_source; i > from_source; i--)
                 out_offset[i - from_source] = out_offset[i - 1 - from_source];
             out_offset[0] = 0;
-        } else if (direction == INCOMING) {
+        } else if (direction == EDGE_DIRECTION::INCOMING) {
             for (uint32_t i = to_dest; i > from_dest; i--)
                 in_offset[i - from_dest] = in_offset[i - 1 - from_dest];
             in_offset[0] = 0;

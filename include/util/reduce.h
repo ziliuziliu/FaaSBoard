@@ -18,9 +18,9 @@ using reduce_float_f_single = std::function<float(float, float)>;
 using reduce_uint32_f_avx_masked = std::function<void(uint32_t *, uint32_t *, uint8_t *, uint32_t)>;
 using reduce_float_f_avx_masked = std::function<void(float *, float *, uint8_t *, uint32_t)>;
 
-reduce_uint32_f_single get_reduce_func_uint32_single(uint8_t reduce_op) {
+reduce_uint32_f_single get_reduce_func_uint32_single(CAAS_REDUCE_OP reduce_op) {
     switch (reduce_op) {
-        case CAAS_UP:
+        case CAAS_REDUCE_OP::UP:
             return reduce_uint32_f_single([](uint32_t x, uint32_t y) -> uint32_t {
                 if (x != 0xffffffff) {
                     return x;
@@ -30,11 +30,11 @@ reduce_uint32_f_single get_reduce_func_uint32_single(uint8_t reduce_op) {
                     return 0xffffffff;
                 }
             });
-        case CAAS_ADD:
+        case CAAS_REDUCE_OP::ADD:
             return reduce_uint32_f_single([](uint32_t x, uint32_t y) -> uint32_t {
                 return x + y;
             });
-        case CAAS_MIN:
+        case CAAS_REDUCE_OP::MIN:
             return reduce_uint32_f_single([](uint32_t x, uint32_t y) -> uint32_t {
                 return std::min(x, y);
             });
@@ -43,13 +43,13 @@ reduce_uint32_f_single get_reduce_func_uint32_single(uint8_t reduce_op) {
     }
 }
 
-reduce_int_f_single get_reduce_func_int_single(uint8_t reduce_op) {
+reduce_int_f_single get_reduce_func_int_single(CAAS_REDUCE_OP reduce_op) {
     switch (reduce_op) {
-        case CAAS_ADD:
+        case CAAS_REDUCE_OP::ADD:
             return reduce_int_f_single([](int x, int y) -> int {
                 return x + y;
             });
-        case CAAS_MIN:
+        case CAAS_REDUCE_OP::MIN:
             return reduce_int_f_single([](int x, int y) -> int {
                 return std::min(x, y);
             });
@@ -58,13 +58,13 @@ reduce_int_f_single get_reduce_func_int_single(uint8_t reduce_op) {
     }
 }
 
-reduce_float_f_single get_reduce_func_float_single(uint8_t reduce_op) {
+reduce_float_f_single get_reduce_func_float_single(CAAS_REDUCE_OP reduce_op) {
     switch (reduce_op) {
-        case CAAS_ADD:
+        case CAAS_REDUCE_OP::ADD:
             return reduce_float_f_single([](float x, float y) -> float {
                 return x + y;
             });
-        case CAAS_MIN:
+        case CAAS_REDUCE_OP::MIN:
             return reduce_float_f_single([](float x, float y) -> float {
                 return std::min(x, y);
             });
@@ -73,9 +73,9 @@ reduce_float_f_single get_reduce_func_float_single(uint8_t reduce_op) {
     }
 }
 
-reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) {
+reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(CAAS_REDUCE_OP reduce_op) {
     switch (reduce_op) {
-        case CAAS_UP:
+        case CAAS_REDUCE_OP::UP:
             return reduce_uint32_f_avx_masked([](uint32_t *a, uint32_t *b, uint8_t *bm, uint32_t len){
                 __m256i ones = _mm256_set1_epi32(0xffffffff);
                 for (uint32_t i = 0; i < len; i += 8) {
@@ -92,7 +92,7 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) 
                     bm++;
                 }
             });
-        case CAAS_MIN:
+        case CAAS_REDUCE_OP::MIN:
             return reduce_uint32_f_avx_masked([](uint32_t *a, uint32_t *b, uint8_t *bm, uint32_t len){
                 __m256i ones = _mm256_set1_epi32(0xffffffff);
                 for (uint32_t i = 0; i < len; i += 8) {
@@ -112,9 +112,9 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(uint8_t reduce_op) 
     }
 }
 
-reduce_float_f_avx_masked get_reduce_func_float_avx_masked(uint8_t reduce_op) {
+reduce_float_f_avx_masked get_reduce_func_float_avx_masked(CAAS_REDUCE_OP reduce_op) {
     switch (reduce_op) {
-        case CAAS_ADD:
+        case CAAS_REDUCE_OP::ADD:
             return reduce_float_f_avx_masked([](float *a, float *b, uint8_t *bm, uint32_t len){
                 for (uint32_t i = 0; i < len; i += 8) {
                     __m256 aa = _mm256_loadu_ps(&a[i]);
@@ -131,20 +131,20 @@ reduce_float_f_avx_masked get_reduce_func_float_avx_masked(uint8_t reduce_op) {
 }
 
 template <class T = empty>
-void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type = 0xff) {
-    if (data_type == 0xff) {
+void reduce_vec(T *a, T *b, uint32_t len, CAAS_REDUCE_OP reduce_op, CAAS_TYPE data_type = CAAS_TYPE::DEFAULT) {
+    if (data_type == CAAS_TYPE::DEFAULT) {
         if (std::is_same<T, uint32_t>::value) {
-            data_type = CAAS_UINT32;
+            data_type = CAAS_TYPE::UINT32;
         } else if (std::is_same<T, int>::value) {
-            data_type = CAAS_INT;
+            data_type = CAAS_TYPE::INT;
         } else if (std::is_same<T, float>::value) {
-            data_type = CAAS_FLOAT;
+            data_type = CAAS_TYPE::FLOAT;
         } else {
             LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     switch (data_type) {
-        case CAAS_UINT32: {
+        case CAAS_TYPE::UINT32: {
             reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
             uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
             #pragma omp parallel for
@@ -153,7 +153,7 @@ void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type =
             }
             break;
         }
-        case CAAS_INT: {
+        case CAAS_TYPE::INT: {
             reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
             #pragma omp parallel for
@@ -162,7 +162,7 @@ void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type =
             }
             break;
         }
-        case CAAS_FLOAT: {
+        case CAAS_TYPE::FLOAT: {
             reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
             float *aa = (float *)a, *bb = (float *)b;
             #pragma omp parallel for
@@ -177,26 +177,26 @@ void reduce_vec(T *a, T *b, uint32_t len, uint8_t reduce_op, uint8_t data_type =
 }
 
 template <class T = empty>
-void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
-    if (data_type == 0xff) {
+void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, CAAS_REDUCE_OP reduce_op, CAAS_TYPE data_type = CAAS_TYPE::DEFAULT) {
+    if (data_type == CAAS_TYPE::DEFAULT) {
         if (std::is_same<T, uint32_t>::value) {
-            data_type = CAAS_UINT32;
+            data_type = CAAS_TYPE::UINT32;
         } else if (std::is_same<T, int>::value) {
-            data_type = CAAS_INT;
+            data_type = CAAS_TYPE::INT;
         } else if (std::is_same<T, float>::value) {
-            data_type = CAAS_FLOAT;
+            data_type = CAAS_TYPE::FLOAT;
         } else {
             LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     switch (data_type) {
-        case CAAS_UINT32: {
+        case CAAS_TYPE::UINT32: {
             reduce_uint32_f_avx_masked f = get_reduce_func_uint32_avx_masked(reduce_op);
             f((uint32_t *)a, (uint32_t *)b, (uint8_t *)(a_bm -> m + 1), len);
             a_bm -> refresh_size();
             break;
         }
-        case CAAS_INT: {
+        case CAAS_TYPE::INT: {
             reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
             #pragma omp parallel for
@@ -209,7 +209,7 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
             }
             break;
         }
-        case CAAS_FLOAT: {
+        case CAAS_TYPE::FLOAT: {
             reduce_float_f_avx_masked f = get_reduce_func_float_avx_masked(reduce_op);
             f((float *)a, (float *)b, (uint8_t *)(a_bm -> m + 1), len);
             a_bm -> refresh_size();
@@ -221,21 +221,21 @@ void reduce_vec_masked_dense(T *a, T *b, uint32_t len, bitmap *a_bm, uint8_t red
 }
 
 template <class T>
-void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_bm, uint8_t reduce_op, uint8_t data_type = 0xff) {
-    if (data_type == 0xff) {
+void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_bm, CAAS_REDUCE_OP reduce_op, CAAS_TYPE data_type = CAAS_TYPE::DEFAULT) {
+    if (data_type == CAAS_TYPE::DEFAULT) {
         if (std::is_same<T, uint32_t>::value) {
-            data_type = CAAS_UINT32;
+            data_type = CAAS_TYPE::UINT32;
         } else if (std::is_same<T, int>::value) {
-            data_type = CAAS_INT;
+            data_type = CAAS_TYPE::INT;
         } else if (std::is_same<T, float>::value) {
-            data_type = CAAS_FLOAT;
+            data_type = CAAS_TYPE::FLOAT;
         } else {
             LOG(FATAL) << "data type " << (int)data_type << " not implemented";
         }
     }
     bitmap_iterator *it = new bitmap_iterator(b_bm, len);
     switch (data_type) {
-        case CAAS_UINT32: {
+        case CAAS_TYPE::UINT32: {
             reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
             uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
             uint32_t pos = 0;
@@ -253,7 +253,7 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             }
             break;
         }
-        case CAAS_INT: {
+        case CAAS_TYPE::INT: {
             reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
             int *aa = (int *)a, *bb = (int *)b;
             uint32_t pos = 0;
@@ -271,7 +271,7 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
             }
             break;
         }
-        case CAAS_FLOAT: {
+        case CAAS_TYPE::FLOAT: {
             reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
             float *aa = (float *)a, *bb = (float *)b;
             uint32_t pos = 0;
@@ -291,6 +291,69 @@ void reduce_vec_masked_sparse(T *a, T *b, uint32_t len, bitmap *a_bm, bitmap *b_
         }
         default:
             LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
+    }
+}
+
+template <class T>
+void reduce_vec_masked_sparse_pair(T *a, T *b, uint32_t a_len, uint32_t b_len, bitmap *a_bm, CAAS_REDUCE_OP reduce_op, CAAS_TYPE data_type = CAAS_TYPE::DEFAULT) {
+    if (data_type == CAAS_TYPE::DEFAULT) {
+        if (std::is_same<T, int>::value) {
+            data_type = CAAS_TYPE::INT;
+        } else if (std::is_same<T, float>::value) {
+            data_type = CAAS_TYPE::FLOAT;
+        } else {
+            data_type = CAAS_TYPE::UINT32;
+        }
+    }
+    switch (data_type) {
+        case CAAS_TYPE::UINT32: {
+            reduce_uint32_f_single f = get_reduce_func_uint32_single(reduce_op);
+            uint32_t *aa = (uint32_t *)a, *bb = (uint32_t *)b;
+            uint32_t idx = 0;
+            // b is a pair of index and value, so we need to use the index to update a
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                uint32_t new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        case CAAS_TYPE::INT: {
+            reduce_int_f_single f = get_reduce_func_int_single(reduce_op);
+            int *aa = (int *)a, *bb = (int *)b;
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                int new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        case CAAS_TYPE::FLOAT: {
+            reduce_float_f_single f = get_reduce_func_float_single(reduce_op);
+            float *aa = (float *)a, *bb = (float *)b;
+            uint32_t idx = 0;
+            while (idx < b_len) {
+                uint32_t index = bb[idx];
+                float new_val = f(aa[index], bb[idx + 1]);
+                if (new_val != aa[index]) {
+                    a_bm -> add(index);
+                }
+                aa[index] = new_val;
+                idx += 2;
+            }
+            break;
+        }
+        default:
+            break;
     }
 }
 

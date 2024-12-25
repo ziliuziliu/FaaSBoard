@@ -14,23 +14,25 @@
 #include <unistd.h>
 
 template <class T>
-uint8_t caas_get_data_type() {
+CAAS_TYPE caas_get_data_type() {
     if (std::is_same<int, T>::value) {
-        return CAAS_INT;
+        return CAAS_TYPE::INT;
     } else if (std::is_same<float, T>::value) {
-        return CAAS_FLOAT;
+        return CAAS_TYPE::FLOAT;
+    } else if (std::is_same<uint32_t, T>::value) {
+        return CAAS_TYPE::UINT32;
     }
-    return CAAS_UINT32;
+    LOG(FATAL) << "unimplemented type";
 }
 
-uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op) {
+uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op) {
     uint32_t flag = 0;
     flag |= (root << 31);
     flag |= ((instances & 0xf) << 16);
     flag |= ((members & 0xf) << 12);
-    flag |= ((data_type & 0xf) << 8);
-    flag |= ((comm_op & 0xf) << 4);
-    flag |= (reduce_op & 0xf);
+    flag |= (((uint8_t)data_type & 0xf) << 8);
+    flag |= (((uint8_t)comm_op & 0xf) << 4);
+    flag |= ((uint8_t)reduce_op & 0xf);
     return flag;
 }
 
@@ -46,24 +48,37 @@ uint8_t caas_flag_get_members(uint32_t flag) {
     return (flag >> 12) & 0xf;
 }
 
-uint8_t caas_flag_get_data_type(uint32_t flag) {
-    return (flag >> 8) & 0xf;
+CAAS_TYPE caas_flag_get_data_type(uint32_t flag) {
+    return (CAAS_TYPE)((flag >> 8) & 0xf);
 }
 
-uint8_t caas_flag_get_comm_op(uint32_t flag) {
-    return (flag >> 4) & 0xf;
+CAAS_OP caas_flag_get_comm_op(uint32_t flag) {
+    return (CAAS_OP)((flag >> 4) & 0xf);
 }
 
-uint8_t caas_flag_get_reduce_op(uint32_t flag) {
-    return flag & 0xf;
+CAAS_REDUCE_OP caas_flag_get_reduce_op(uint32_t flag) {
+    return (CAAS_REDUCE_OP)(flag & 0xf);
 }
 
-bool caas_segment_get_segment_type(uint32_t flag) {
-    return flag & (1 << 30);
+COMM_TYPE caas_segment_get_segment_type(uint32_t flag) {
+    return (COMM_TYPE)((flag >> 29) & 0x3);
 }
 
-void caas_segment_set_segment_type(uint32_t *flag, bool segment_type) {
-    *flag = ((*flag) & ~(1 << 30)) | (segment_type << 30);
+void caas_segment_set_segment_type(uint32_t *flag, COMM_TYPE segment_type) {
+    *flag &= 0x9fffffff;
+    *flag |= ((uint32_t)segment_type << 29);
+}
+
+COMM_TYPE caas_adaptive_segment(uint32_t segment_size) {
+    if (segment_size == 0) {
+        return COMM_TYPE::CAAS_MAGIC;
+    } else if (segment_size <= CAAS_SPARSE_PAIR_LIMIT) {
+        return COMM_TYPE::CAAS_PAIR;
+    } else if (segment_size <= CAAS_SPARSE_LIMIT) {
+        return COMM_TYPE::CAAS_SPARSE;
+    } else {
+        return COMM_TYPE::CAAS_DENSE;
+    }
 }
 
 void caas_send_all(int fd, char *data, size_t len) {
@@ -97,7 +112,7 @@ public:
     uint32_t object_id;
     uint32_t bitmap_len;
     uint32_t vec_len;
-    // | root, 1 bit | segment_type, 1 bit | 10 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
+    // | root, 1 bit | segment_type, 2 bit | 9 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
     uint32_t flag;
 
     uint32_t *data;
@@ -107,7 +122,10 @@ public:
     T *vec;
 
     bool has_bitmap, root;
-    uint8_t instances, members, data_type, comm_op, reduce_op;
+    uint8_t instances, members;
+    CAAS_TYPE data_type;
+    CAAS_OP comm_op;
+    CAAS_REDUCE_OP reduce_op;
 
     T base_vertex_value;
     sockaddr_in meta_server;
@@ -119,7 +137,7 @@ public:
     
     comm_object(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_index, 
-        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ) : object_id(object_id), vec_len(vec_len), start_index(start_index), has_bitmap(has_bitmap), 
         root(root), instances(instances), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
@@ -174,7 +192,7 @@ public:
 
     proxy(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-        bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+        bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
         T base_vertex_value, std::string meta_server_addr, int meta_server_port
     ): comm_object<T>(
             object_id, vec_len, has_bitmap, start_vertex, 
@@ -209,51 +227,51 @@ public:
     }
 
     void caas_do() {
-        if (this -> comm_op == CAAS_MASKED_BROADCAST || this -> comm_op == CAAS_MASKED_REDUCE) {
+        if (this -> comm_op == CAAS_OP::MASKED_BROADCAST || this -> comm_op == CAAS_OP::MASKED_REDUCE) {
             if (this -> colocated_member == this -> members) {
-                VLOG(1) << "object " << this -> object_id << " return from " << this -> comm_op;
+                VLOG(1) << "object " << this -> object_id << " return from " << (int)(this -> comm_op);
                 return;
             }
         }
         if (this -> root) {
             switch (this -> comm_op) {
-                case CAAS_MASKED_BROADCAST: {
-                    bool segment_type = caas_adaptive_segment<T>(this);
+                case CAAS_OP::MASKED_BROADCAST: {
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    if (segment_type == CAAS_SPARSE) {
+                    if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
                     }
                     break;
                 }
-                case CAAS_MASKED_REDUCE: {
+                case CAAS_OP::MASKED_REDUCE: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << this -> comm_op;
+                    LOG(FATAL) << "undefined comm op " << (int)(this -> comm_op);
                     break;
             }
         } else {
             switch (this -> comm_op) {
-                case CAAS_MASKED_BROADCAST: {
+                case CAAS_OP::MASKED_BROADCAST: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
                 }
-                case CAAS_MASKED_REDUCE: {
-                    bool segment_type = caas_adaptive_segment<T>(this);
+                case CAAS_OP::MASKED_REDUCE: {
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
-                    if (segment_type == CAAS_SPARSE) {
+                    if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
                     }
                     break;
                 }
-                case CAAS_ALLREDUCE: {
+                case CAAS_OP::ALLREDUCE: {
                     std::pair<char *, size_t> send_segment = caas_make_segment(this);
                     caas_send_all(proxy_server_socket, send_segment.first, send_segment.second);
                     std::pair<char *, size_t> recv_segment = caas_recv_all(proxy_server_socket);
@@ -261,7 +279,7 @@ public:
                     break;
                 }
                 default:
-                    LOG(FATAL) << "undefined comm op " << this -> comm_op;
+                    LOG(FATAL) << "undefined comm op " << (int)(this -> comm_op);
                     break;
             }
         }
@@ -271,14 +289,14 @@ public:
 
 template <class T>
 comm_object<T> *caas_make_comm_object(
-    uint8_t comm_type, std::string meta_server_addr, int meta_server_port,
+    CAAS_COMM_MODE comm_type, std::string meta_server_addr, int meta_server_port,
     uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
-    bool root, uint8_t instances, uint8_t members, uint8_t data_type, uint8_t comm_op, uint8_t reduce_op,
+    bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
     T base_vertex_value
 ) {
     comm_object<T> *result = nullptr;
     switch (comm_type) {
-        case CAAS_PROXY:
+        case CAAS_COMM_MODE::PROXY:
             result = new proxy<T>(
                 object_id, vec_len, has_bitmap, start_vertex, 
                 root, instances, members, data_type, comm_op, reduce_op,
@@ -292,50 +310,112 @@ comm_object<T> *caas_make_comm_object(
 }
 
 template <class T>
-bool caas_adaptive_segment(comm_object<T> *object) {
-    return object -> bm -> get_size() <= CAAS_SPARSE_LIMIT ? CAAS_SPARSE : CAAS_DENSE;
-}
-
-template <class T>
-std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, bool segment_type) {
+std::pair<char *, size_t> caas_make_adaptive_segment(comm_object<T> *object, COMM_TYPE segment_type) {
+    // Set segment type
     caas_segment_set_segment_type(object -> data + 4, segment_type);
-    if (segment_type == CAAS_DENSE) {
-        return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
-    } else {
-        uint32_t segment_len = 5 + object -> bitmap_len + object -> bm -> get_size();
-        uint32_t *segment = new uint32_t[segment_len];
-        uint32_t pos = 5 + object -> bitmap_len;
-        memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
-        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
-        for (;;) {
-            uint32_t index = it -> next();
-            if (index == 0xffffffff) {
-                break;
-            }
-            segment[pos] = object -> data[5 + object -> bitmap_len + index];
-            pos++;
+
+    switch(segment_type) {
+        case COMM_TYPE::CAAS_MAGIC: {
+            uint32_t seg_pairs_len = 5;
+            uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
+            memcpy(seg_pairs, object -> data, 20); // 20 is the size of the first 5 elements
+            return {(char *)seg_pairs, 5 << 2};
         }
-        return {(char *)segment, segment_len << 2};
+
+        case COMM_TYPE::CAAS_PAIR: {
+            // Construct sparse segment with only index-value pairs whose value is not zero
+            uint32_t seg_pairs_len = 5 + object -> bm -> get_size() * 2;
+            uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
+            uint32_t pos = 5;
+            memcpy(seg_pairs, object -> data, 20); // 20 is the size of the first 5 elements
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                seg_pairs[pos] = index;
+                seg_pairs[pos + 1] = object -> data[5 + object -> bitmap_len + index];
+                pos += 2;
+            }
+            return {(char *)seg_pairs, pos << 2};
+        }
+
+        case COMM_TYPE::CAAS_SPARSE: {
+            uint32_t segment_len = 5 + object -> bitmap_len + object -> bm -> get_size();
+            uint32_t *segment = new uint32_t[segment_len];
+            uint32_t pos = 5 + object -> bitmap_len;
+            memcpy(segment, object -> data, 20 + (object -> bitmap_len << 2));
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                segment[pos] = object -> data[5 + object -> bitmap_len + index];
+                pos++;
+            }
+            return {(char *)segment, segment_len << 2};
+        }
+       
+        case COMM_TYPE::CAAS_DENSE: {
+            return {(char *)object -> data, (5 + object -> bitmap_len + object -> vec_len) << 2};
+        }
+
+        default: {
+            LOG(FATAL) << "undefined segment type " << (int)segment_type;
+        }
     }
 }
 
 template <class T>
 void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
-    uint32_t *segment = (uint32_t *)data;
-    bool segment_type = caas_segment_get_segment_type(segment[4]);
-    if (segment_type == CAAS_DENSE) {
-        memcpy((char *)object -> data, data, len);
-    } else {
-        memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
-        uint32_t pos = 5 + object -> bitmap_len;
-        bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
-        for (;;) {
-            uint32_t index = it -> next();
-            if (index == 0xffffffff) {
-                break;
+    uint32_t *segment = (uint32_t *)data; 
+    COMM_TYPE segment_type = caas_segment_get_segment_type(segment[4]);
+    
+    switch (segment_type) {
+        case COMM_TYPE::CAAS_MAGIC: {
+            object -> bm -> clear();
+            break;
+        }
+
+        case COMM_TYPE::CAAS_PAIR: {
+            memcpy(object -> data, segment, 20);
+            uint32_t pos = 5;
+            // Clear current bitmap
+            object -> bm -> clear();
+            while (pos < (len >> 2)) {
+                // Update bitmap and vector
+                uint32_t index = segment[pos];
+                object -> data[5 + object -> bitmap_len + index] = segment[pos + 1];
+                object -> bm -> add(index);
+                pos += 2;
             }
-            object -> data[5 + object -> bitmap_len + index] = segment[pos];
-            pos++;
+            break;
+        }
+
+        case COMM_TYPE::CAAS_SPARSE: {
+            memcpy(object -> data, segment, 20 + (object -> bitmap_len << 2));
+            uint32_t pos = 5 + object -> bitmap_len;
+            bitmap_iterator *it = new bitmap_iterator(object -> bm, object -> vec_len);
+            for (;;) {
+                uint32_t index = it -> next();
+                if (index == 0xffffffff) {
+                    break;
+                }
+                object -> data[5 + object -> bitmap_len + index] = segment[pos];
+                pos++;
+            }
+            break;
+        }
+
+        case COMM_TYPE::CAAS_DENSE: {
+            memcpy(object -> data, data, len);
+            break;
+        }
+
+        default: {
+            LOG(FATAL) << "undefined segment type " << (int)segment_type;
         }
     }
 }
@@ -343,13 +423,33 @@ void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
 template <class T>
 void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
-    bool segment_type = caas_segment_get_segment_type(segment[4]);
-    uint8_t reduce_op = caas_flag_get_reduce_op(segment[4]);
-    if (segment_type == CAAS_DENSE) {
-        reduce_vec_masked_dense<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, reduce_op);
-    } else {
-        bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
-        reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);
+    COMM_TYPE segment_type = caas_segment_get_segment_type(segment[4]);
+    CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(segment[4]);
+
+    switch (segment_type) {
+        case COMM_TYPE::CAAS_MAGIC: {
+            return;
+        }
+
+        case COMM_TYPE::CAAS_PAIR: {
+            reduce_vec_masked_sparse_pair<T>(object -> vec, (T *)segment + 5, object -> vec_len, (len >> 2) - 5, object -> bm, reduce_op);
+            break;
+        }
+
+        case COMM_TYPE::CAAS_SPARSE: {
+            bitmap *segment_bm = new bitmap(object -> vec_len, segment + 5);
+            reduce_vec_masked_sparse<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, segment_bm, reduce_op);
+            break;
+        }
+
+        case COMM_TYPE::CAAS_DENSE: {
+            reduce_vec_masked_dense<T>(object -> vec, (T *)segment + 5 + object -> bitmap_len, object -> vec_len, object -> bm, reduce_op);
+            break;
+        }
+    
+        default: {
+            LOG(FATAL) << "undefined segment type " << (int)segment_type;
+        }
     }
 }
 

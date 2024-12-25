@@ -14,7 +14,7 @@ make aws-lambda-package-lambda_pr
 ./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
 
 5. preprocess_and_save
-sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> --v 1
+sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> <--undirected> --v 1
 
 6. run bfs
 sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root <bfs_root> -graph_dir <graph_dir> -result_dir <result_dir> -cores 2 --sparse-only --meta-server <meta_server_ip> --v 1 > 0.txt 2>&1 & \
@@ -71,12 +71,12 @@ aws lambda invoke --function-name bfs_0 --payload '"ping"' result.txt
 sudo ./correctness_test -graph_file ../data/twitter-2010.txt -result_dir ../data/result -vertices 41652230 -edges 1468365182 -application bfs -bfs_root 0 --v 1
 sudo python3 build_function.py -graph_root_dir data/twitter-2010-balance -application bfs
 
-sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/0 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 0.txt 2>&1 & \
-sudo numactl --physcpubind=2,3 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/1 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 1.txt 2>&1 & \
-sudo numactl --physcpubind=4,5 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/2 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 2.txt 2>&1 & \
-sudo numactl --physcpubind=6,7 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/3 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 3.txt 2>&1 & \
-sudo numactl --physcpubind=8,9 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/4 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 4.txt 2>&1 & \
-sudo numactl --physcpubind=10,11 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/5 -result_dir ../data/result -cores 2 --sparse-only --meta-server 172.31.12.143 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 5.txt 2>&1 &
+sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/0 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 0.txt 2>&1 & \
+sudo numactl --physcpubind=2,3 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/1 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 1.txt 2>&1 & \
+sudo numactl --physcpubind=4,5 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/2 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 2.txt 2>&1 & \
+sudo numactl --physcpubind=6,7 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/3 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 3.txt 2>&1 & \
+sudo numactl --physcpubind=8,9 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/4 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 4.txt 2>&1 & \
+sudo numactl --physcpubind=10,11 ./local_bfs -request_id 123 -bfs_root 0 -graph_dir ../data/twitter-2010-balance/5 -result_dir ../data/result -cores 2 --sparse-only --meta-server 127.0.0.1 -s3-bucket ziliuziliu --save-mode 2 --v 1 > 5.txt 2>&1 &
 
 aws lambda invoke --function-name bfs_0 --payload '{"graph_dir": "graph", "result_dir": "/tmp", "meta_server": "172.31.0.207", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 2, "s3_bucket": "ziliuziliu", "request_id": 123, "bfs_root": 0}' result0.txt & \
 aws lambda invoke --function-name bfs_1 --payload '{"graph_dir": "graph", "result_dir": "/tmp", "meta_server": "172.31.0.207", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 2, "s3_bucket": "ziliuziliu", "request_id": 123, "bfs_root": 0}' result1.txt & \

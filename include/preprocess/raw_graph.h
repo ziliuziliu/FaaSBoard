@@ -5,6 +5,7 @@
 #include "graph_set.h"
 #include "partition.h"
 #include "util/io.h"
+#include "util/timer.h"
 
 #include <algorithm>
 #include <string>
@@ -44,9 +45,9 @@ public:
         }
     }
 
-    void read_txt(std::string path) {
+    void read_txt(std::string path, bool undirected) {
         read_txt_util<ewT>(
-            path, 
+            path, undirected,
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
             weighted, meta.total_v, meta.total_e
@@ -72,6 +73,8 @@ public:
     }
 
     partition_result row_partition(int total_block) {
+        timer t;
+        t.tick("partition time");
         partition_result result;
         uint64_t current_edges = 0, previous_from_source = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
@@ -83,10 +86,13 @@ public:
             current_edges += out_offset[i + 1] - out_offset[i];
         }
         result.add(previous_from_source, meta.total_v, 0, meta.total_v, current_edges);
+        t.from_tick();
         return result;
     }
 
     partition_result column_partition(int total_block) {
+        timer t;
+        t.tick("partition time");
         partition_result result;
         uint64_t current_edges = 0, previous_from_dest = 0;
         for (uint32_t i = 0; i < meta.total_v; i++) {
@@ -98,12 +104,15 @@ public:
             current_edges += in_offset[i + 1] - in_offset[i];
         }
         result.add(0, meta.total_v, previous_from_dest, meta.total_v, current_edges);
+        t.from_tick();
         return result;
     }
 
     // require total_block to be square number
     partition_result mondriaan_partition_row_column(int total_block) {
-        LOG(FATAL) << "the partition must be regular, fix this!";
+        VLOG(1) << "mondriaan_partition_row_column the partition must be regular, fix this!";
+        timer t;
+        t.tick("partition time");
         int cut = sqrt(total_block);
         partition_result row_result = row_partition(cut);
         partition_result final_result;
@@ -134,12 +143,15 @@ public:
                 final_result.add(block.from_source, block.to_source, previous_from_dest, meta.total_v, accum_edges);
             }
         }
+        t.from_tick();
         return final_result;
     }
 
     // require total_block to be square number
     partition_result mondriaan_partition_column_row(int total_block) {
-        LOG(FATAL) << "the partition must be regular, fix this!";
+        VLOG(1) << "mondriaan_partition_column_row the partition must be regular, fix this!";
+        timer t;
+        t.tick("partition time");
         int cut = sqrt(total_block);
         partition_result column_result = column_partition(cut);
         partition_result final_result;
@@ -170,6 +182,7 @@ public:
                 final_result.add(previous_from_source, meta.total_v, block.from_dest, block.to_dest, accum_edges);
             }
         }
+        t.from_tick();
         return final_result;
     }
 
@@ -182,12 +195,14 @@ public:
         for (int t = 0; t < cut; t++) {
             std::vector<uint32_t> block_edges(cut);
             for (uint32_t i = cuts[t]; i < cuts[t + 1]; i++) {
-                int col_block_p = 0;
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
-                    while (col_block_p < cut && dest >= cuts[col_block_p + 1])
-                        col_block_p++;
-                    block_edges[col_block_p]++;
+                    for (int k = 0; k < cut; k++) {
+                        if (dest >= cuts[k] && dest < cuts[k + 1]) {
+                            block_edges[k]++;
+                            break;
+                        }
+                    }
                 }
             }
             #pragma omp critical
@@ -200,6 +215,8 @@ public:
     }
 
     partition_result naive_checkerboard_partition(int cut) {
+        timer t;
+        t.tick("partition time");
         std::vector<uint32_t> cuts;
         uint32_t offset = 0;
         for (int i = 0; i < (int)meta.total_v % cut; i++) {
@@ -211,6 +228,7 @@ public:
             offset += meta.total_v / cut;
         }
         cuts.push_back(offset);
+        t.from_tick();
         return generate_checkerboard_partition_from_cuts(cut, cuts);
     }
 
@@ -234,6 +252,8 @@ public:
     }
 
     partition_result checkerboard_partition(int cut) {
+        timer t;
+        t.tick("partition time");
         uint32_t left = 1, right = meta.total_e;
         std::vector<uint32_t> result_cuts(cut + 1);
         while ((double)(right - left) / right >= 0.01) {
@@ -246,29 +266,35 @@ public:
                 uint32_t workload_limit = check_list[t];
                 bool plan_satisfy_limit = true;
                 for (uint32_t i = 0; i < meta.total_v; i++) {
-                    int cut_p = 0, block_p = -1, current_cut = cuts.size(), diagonal = 0;
+                    int current_cut = cuts.size(), diagonal = 0;
                     std::fill(in_workload.begin(), in_workload.end(), 0);
                     std::fill(out_workload.begin(), out_workload.end(), 0);
                     for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                         uint32_t dest = out_dest[j];
                         if (dest == i) diagonal = 1;
-                        if (dest >= i) break;
-                        while (cut_p < (int)cuts.size() && dest >= cuts[cut_p]) {
-                            cut_p++;
-                            block_p++;
+                        if (dest >= i) continue;
+                        for (int k = 0; k < current_cut; k++) {
+                            if (k == current_cut - 1) {
+                                out_workload[k]++;
+                                break;
+                            } else if (cuts[k] <= dest && dest < cuts[k + 1]) {
+                                out_workload[k]++;
+                                break;
+                            }
                         }
-                        out_workload[block_p]++;
                     }
-                    cut_p = 0; 
-                    block_p = -1;
                     for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                         uint32_t source = in_source[j];
-                        if (source >= i) break;
-                        while (cut_p < (int)cuts.size() && source >= cuts[cut_p]) {
-                            cut_p++;
-                            block_p++;
+                        if (source >= i) continue;
+                        for (int k = 0; k < current_cut; k++) {
+                            if (k == current_cut - 1) {
+                                in_workload[k]++;
+                                break;
+                            } else if (cuts[k] <= source && source < cuts[k + 1]) {
+                                in_workload[k]++;
+                                break;
+                            }
                         }
-                        in_workload[block_p]++;
                     }
                     bool block_satisfy_limit = true;
                     for (int j = 0; j < current_cut - 1; j++)
@@ -314,6 +340,7 @@ public:
             }
         }
         result_cuts[cut] = meta.total_v;
+        t.from_tick();
         return generate_checkerboard_partition_from_cuts(cut, result_cuts);
     }
 
@@ -325,39 +352,39 @@ public:
         for (int t = 0; t < (int)subgraphs.size(); t++) {
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_dest; i < subgraph -> to_dest; i++) {
-                subgraph -> begin_add_edge(i, INCOMING);
+                subgraph -> begin_add_edge(i, EDGE_DIRECTION::INCOMING);
                 for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
                     if (source >= subgraph -> from_source && source < subgraph -> to_source) {
                         if (!weighted) {
-                            subgraph -> add_edge(source, i, INCOMING);
+                            subgraph -> add_edge(source, i, EDGE_DIRECTION::INCOMING);
                         } else {
                             ewT weight = in_weight[j];
-                            subgraph -> add_edge(source, i, weight, INCOMING);
+                            subgraph -> add_edge(source, i, weight, EDGE_DIRECTION::INCOMING);
                         }
                     }
                 }
             }
-            subgraph -> end_add_edge(INCOMING);
+            subgraph -> end_add_edge(EDGE_DIRECTION::INCOMING);
         }
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_source; i < subgraph -> to_source; i++) {
-                subgraph -> begin_add_edge(i, OUTGOING);
+                subgraph -> begin_add_edge(i, EDGE_DIRECTION::OUTGOING);
                 for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest) {
                         if (!weighted) {
-                            subgraph -> add_edge(i, dest, OUTGOING);
+                            subgraph -> add_edge(i, dest, EDGE_DIRECTION::OUTGOING);
                         } else {
                             ewT weight = out_weight[j];
-                            subgraph -> add_edge(i, dest, weight, OUTGOING);
+                            subgraph -> add_edge(i, dest, weight, EDGE_DIRECTION::OUTGOING);
                         }
                     }
                 }
             }
-            subgraph -> end_add_edge(OUTGOING);
+            subgraph -> end_add_edge(EDGE_DIRECTION::OUTGOING);
         }
         for (int i = 0; i < (int)subgraphs.size(); i++) {
             subgraphs[i] -> set_in_degree(in_degree + subgraphs[i] -> from_dest);

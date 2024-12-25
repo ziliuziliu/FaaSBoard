@@ -175,7 +175,7 @@ public:
         avg_work = (double)total_work / total_block;
         min_work = works[0];
         max_work = works[total_block - 1];
-        std::cout << "Total Work: " << total_work 
+        VLOG(1) << "Total Work: " << total_work 
                   << ", Avg Work: " << avg_work 
                   << ", Max Work: " << max_work 
                   << ", Min Work: " << min_work
@@ -199,7 +199,7 @@ public:
         avg_comm = (double)total_comm / total_block;
         min_comm = comms[0];
         max_comm = comms[total_block - 1];
-        std::cout << "Total Comm: " << total_comm 
+        VLOG(1) << "Total Comm: " << total_comm 
                   << ", Avg Comm: " << avg_comm
                   << ", Max Comm: " << max_comm 
                   << ", Min Comm: " << min_comm
@@ -273,7 +273,7 @@ public:
                 graph_meta["from_dest"] = graph -> from_dest;
                 graph_meta["to_dest"] = graph -> to_dest;
                 graph_meta["edges"] = graph -> edges;
-                comm_meta["comm_type"] = CAAS_PROXY;
+                comm_meta["comm_type"] = CAAS_COMM_MODE::PROXY;
                 comm_meta["recv"] = std::vector<json>();
                 for (int j = 0; j < (int)cuts.size() - 1; j++) {
                     if (cuts[j] >= graph -> from_source && cuts[j] < graph -> to_source) {
