@@ -15,10 +15,12 @@ graph_set<uint32_t, empty> *graphs = nullptr;
 void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
     timer t;
     t.start();
+    t.tick("initialize graph");
     t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(CAAS_REDUCE_OP::UP, 0xffffffff, config);
     }
+    t.from_tick();
     graphs -> set_begin_func(
         [root](graph<uint32_t, empty> *g, uint32_t v){
             comm_object<uint32_t> *in_seg = g -> in_segment;
