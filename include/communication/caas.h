@@ -186,7 +186,6 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
-    std::atomic<bool> connected;
 
     proxy() {}
 
@@ -201,29 +200,23 @@ public:
     ) {}
 
     void caas_connect(uint32_t request_id) {
-        bool expected = false;
-        if (connected.compare_exchange_strong(expected, true)) {
-            this -> request_id = request_id;
-            this -> data[0] = request_id;
-            int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-            int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
-            CHECK(status_code == 0) << "can't connect to meta server";
-            recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
-            close(meta_server_socket);
-            proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-            status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
-            CHECK(status_code == 0) << "can't connect to proxy server";
-            uint32_t connect_data[6] = {request_id, this -> object_id, this -> vec_len, 
-                *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
-            send(proxy_server_socket, connect_data, sizeof(uint32_t) * 6, 0);
-        }
+        this -> request_id = request_id;
+        this -> data[0] = request_id;
+        int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+        int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
+        CHECK(status_code == 0) << "can't connect to meta server";
+        recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
+        close(meta_server_socket);
+        proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+        status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
+        CHECK(status_code == 0) << "can't connect to proxy server";
+        uint32_t connect_data[6] = {request_id, this -> object_id, this -> vec_len, 
+            *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
+        send(proxy_server_socket, connect_data, sizeof(uint32_t) * 6, 0);
     }
 
     void caas_disconnect() {
-        bool expected = true;
-        if (connected.compare_exchange_strong(expected, false)) {
-            close(proxy_server_socket);
-        }
+        close(proxy_server_socket);
     }
 
     void caas_do() {

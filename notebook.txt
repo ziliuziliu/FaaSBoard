@@ -84,3 +84,5 @@ aws lambda invoke --function-name bfs_2 --payload '{"graph_dir": "graph", "resul
 aws lambda invoke --function-name bfs_3 --payload '{"graph_dir": "graph", "result_dir": "/tmp", "meta_server": "172.31.0.207", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 2, "s3_bucket": "ziliuziliu", "request_id": 123, "bfs_root": 0}' result3.txt & \
 aws lambda invoke --function-name bfs_4 --payload '{"graph_dir": "graph", "result_dir": "/tmp", "meta_server": "172.31.0.207", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 2, "s3_bucket": "ziliuziliu", "request_id": 123, "bfs_root": 0}' result4.txt & \
 aws lambda invoke --function-name bfs_5 --payload '{"graph_dir": "graph", "result_dir": "/tmp", "meta_server": "172.31.0.207", "cores": 2, "no_pipeline": false, "sparse_only": true, "dense_only": false, "save_mode": 2, "s3_bucket": "ziliuziliu", "request_id": 123, "bfs_root": 0}' result5.txt &
+
+sudo ./preprocess_and_save -graph_file ../data/twitter-2010.txt -graph_root_dir ../data/twitter-2010-balance -vertices 41652230 -edges 1468365182 -partitions 6 --v 1

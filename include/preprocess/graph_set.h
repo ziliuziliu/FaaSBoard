@@ -237,7 +237,7 @@ public:
         }
         fs::create_directory(root_dir);
         int *instances = new int[cuts.size() * 2 - 1]();
-        instances[0] = total_graph;
+        instances[0] = (int)graphsets.size();
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
             for (int j = 0; j < (int)graphsets.size(); j++) {
                 bool contain_object_in = false, contain_object_out = false;
@@ -323,7 +323,7 @@ public:
                     LOG(FATAL) << "too many out segments";
                 }
                 comm_meta["vote"]["object_id"] = 0;
-                comm_meta["vote"]["instances"] = instances[(int)comm_meta["vote"]["object_id"]];
+                comm_meta["vote"]["instances"] = instances[0];
                 comm_meta["vote"]["members"] = total_graph;
                 graph_meta["comm"] = comm_meta; 
                 graphs_meta["graphs"].push_back(graph_meta);
