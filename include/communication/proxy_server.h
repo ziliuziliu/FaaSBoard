@@ -22,6 +22,7 @@
 #include <utility>
 #include <chrono>
 #include <immintrin.h>
+#include <unordered_set>
 
 #define MAX_CONNECTION 4096
 
@@ -31,21 +32,25 @@ class segment_base {
     
 public:
 
+    uint32_t request_id, object_id;
     uint32_t *data;
     bitmap *bm;
     std::mutex m;
     int root_fd;
-    std::vector<int> fds;
+    std::unordered_set<int> fds;
     int cnt, bitmap_len, vec_len;
     uint32_t base_vertex_value, flag;
     __m256i base_vertex_value_m256;
     bool initialized;
+    SEGMENT_CONNECTION_STATUS connection_status;
 
     segment_base() {}
 
-    segment_base(int vec_len, uint32_t base_vertex_value, uint32_t flag, bool has_bitmap) {
+    segment_base(uint32_t request_id, uint32_t object_id, int vec_len, uint32_t base_vertex_value, uint32_t flag, bool has_bitmap) {
+        this -> request_id = request_id;
+        this -> object_id = object_id;
         this -> root_fd = -1;
-        this -> fds = std::vector<int>();
+        this -> fds = std::unordered_set<int>();
         this -> flag = flag;
         this -> cnt = 0;
         this -> bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
@@ -55,7 +60,12 @@ public:
         this -> base_vertex_value = base_vertex_value;
         this -> base_vertex_value_m256 = _mm256_set1_epi32(base_vertex_value);
         this -> initialized = false;
+        this -> connection_status = SEGMENT_CONNECTION_STATUS::CONNECTING;
         reset();
+    }
+
+    ~segment_base() {
+        delete [] data;
     }
 
     void reset() {
@@ -74,6 +84,39 @@ public:
 
     bool all_connected() {
         return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
+    }
+
+    bool none_connected() {
+        return fds.size() == 0 && root_fd == -1;
+    }
+
+    void add_fd(int fd, bool root) {
+        if (root) {
+            if (root_fd != -1) {
+                LOG(FATAL) << "try to add root fd " << fd << " but already have " << root_fd;
+            }
+            root_fd = fd;
+        } else {
+            if (fds.contains(fd)) {
+                LOG(FATAL) << "already have " << fd << " in fds";
+            }
+            fds.insert(fd);
+        }
+        if (all_connected()) {
+            connection_status = SEGMENT_CONNECTION_STATUS::WORKING;
+        }
+    }
+
+    void remove_fd(int fd) {
+        if (root_fd == fd) {
+            root_fd = -1;
+        } else {
+            if (!fds.contains(fd)) {
+                LOG(FATAL) << "don't have " << fd << " in fds";
+            }
+            fds.erase(fd);
+        }
+        connection_status = SEGMENT_CONNECTION_STATUS::DISCONNECTING;
     }
 
     void initialize(uint32_t *header) {
@@ -202,24 +245,34 @@ void work(int thread_id) {
         int client_fd;
         fd_queue[thread_id] -> wait_dequeue(client_fd);
         std::pair<char *, size_t> raw_data = caas_recv_all(client_fd);
+        segment_base *segment = fd_segment[client_fd];
         if (raw_data.first == nullptr) {
             close(client_fd);
-            cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
             VLOG(1) << "fd " << client_fd << " disconnected";
+            segment -> m.lock();
+            segment -> remove_fd(client_fd);
+            if (segment -> none_connected()) {
+                segment_table[segment -> request_id].erase(segment -> object_id);
+                segment -> m.unlock();
+                VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
+                delete segment;
+            } else {
+                segment -> m.unlock();
+            }
+            cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
             continue;
         }
         uint32_t *data = (uint32_t *)raw_data.first;
         uint32_t request_id = data[0], object_id = data[1], flag = data[4];
-        segment_base *segment;
-        segment = segment_table[request_id][object_id];
+        std::vector<int> fd_list(segment -> fds.begin(), segment -> fds.end());
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_OP::MASKED_BROADCAST:
                 VLOG(1) << "masked broadcast from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
                 #pragma omp parallel for
-                for (int i = 0; i < (int)segment -> fds.size(); i++) {
-                    caas_send_all(segment -> fds[i], raw_data.first, raw_data.second);
+                for (int i = 0; i < (int)fd_list.size(); i++) {
+                    caas_send_all(fd_list[i], raw_data.first, raw_data.second);
                 }
                 delete [] raw_data.first;
                 break;
@@ -258,8 +311,8 @@ void work(int thread_id) {
                 if (segment -> cnt == (int)segment -> fds.size()) {
                     std::pair<char *, size_t> new_data = segment -> make_segment();
                     #pragma omp parallel for
-                    for (int i = 0; i < (int)segment -> fds.size(); i++) {
-                        caas_send_all(segment -> fds[i], new_data.first, new_data.second);
+                    for (int i = 0; i < (int)fd_list.size(); i++) {
+                        caas_send_all(fd_list[i], new_data.first, new_data.second);
                     }
                     segment -> reset();
                 }
@@ -321,22 +374,18 @@ void run() {
                 }
                 segment_base *segment;
                 if (segment_table[request_id].count(object_id) == 0) {
-                    segment_table[request_id][object_id] = new segment_base(vec_len, base_vertex_value, flag, has_bitmap);
+                    segment_table[request_id][object_id] = new segment_base(request_id, object_id, vec_len, base_vertex_value, flag, has_bitmap);
                 }
                 segment = segment_table[request_id][object_id];
                 fd_segment[client_fd] = segment;
-                if (caas_flag_get_root(flag)) {
-                    segment -> root_fd = client_fd;
-                } else {
-                    segment -> fds.push_back(client_fd);
-                }
+                segment -> add_fd(client_fd, caas_flag_get_root(flag));
             } else if (events[i].events & EPOLLHUP) {
-                VLOG(1) << "fd " << events[i].data.fd << " disconnected";
+                VLOG(1) << "fd " << events[i].data.fd << " epollhup";
             } else if (events[i].events & EPOLLERR) {
-                LOG(FATAL) << "fd " << events[i].data.fd << " error";
+                LOG(FATAL) << "fd " << events[i].data.fd << " epollerr";
             } else {
                 int client_fd = events[i].data.fd;
-                if (!fd_segment[client_fd] -> all_connected()) {
+                if (fd_segment[client_fd] -> connection_status == SEGMENT_CONNECTION_STATUS::CONNECTING) {
                     continue;
                 }
                 if (!cas<int>(&fd_flag[client_fd], CAAS_FD_NOTINQUEUE, CAAS_FD_INQUEUE)) {

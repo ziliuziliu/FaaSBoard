@@ -55,6 +55,12 @@ enum class CAAS_SAVE_MODE : unsigned int {
     SAVE_S3 = 2,
 };
 
+enum class SEGMENT_CONNECTION_STATUS : unsigned int {
+    CONNECTING = 0,
+    WORKING = 1,
+    DISCONNECTING = 2,
+};
+
 typedef void * empty;
 
 #endif
