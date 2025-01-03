@@ -20,6 +20,9 @@ void pagerank(uint32_t request_id, int iterations, exec_config *config) {
     if (graphs == nullptr) {
         graphs = new graph_set<float, empty>(CAAS_REDUCE_OP::ADD, 0.0, config);
     }
+    if (request_id == 0xffffffff) {
+        return; // set 0xffffffff as the request id for keeping graph not evicted
+    }
     graphs -> set_begin_func(
         [](graph<float, empty> *g, uint32_t v){
             comm_object<float> *in_seg = g -> in_segment;
