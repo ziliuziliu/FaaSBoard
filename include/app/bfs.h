@@ -15,12 +15,10 @@ graph_set<uint32_t, empty> *graphs = nullptr;
 void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
     timer t;
     t.start();
-    t.tick("initialize graph");
     t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(CAAS_REDUCE_OP::UP, 0xffffffff, config);
     }
-    t.from_tick();
     if (request_id == 0xffffffff) {
         return; // set 0xffffffff as the request id for keeping graph not evicted
     }
