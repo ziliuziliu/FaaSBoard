@@ -25,12 +25,14 @@ public:
     comm_object<uint32_t> *vote_object;
     vwT base_vertex_value;
     exec_config *config;
+    bool stateful;
 
     graph_set(CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
         in_segments = std::unordered_map<uint32_t, comm_object<vwT> *>();
         out_segments = std::unordered_map<uint32_t, comm_object<vwT> *>();
         vote_object = nullptr;
+        stateful = false;
         if (config -> enable_s3()) {
             s3_init();
         }
@@ -62,11 +64,20 @@ public:
                 comm_object<vwT> *in_segment = std::get<0>(objects);
                 comm_object<vwT> *out_segment = std::get<1>(objects);
                 comm_object<uint32_t> *vote_object = std::get<2>(objects);
+                stateful |= in_segment -> root | out_segment -> root;
                 newgraph -> set_comm_object(in_segment, out_segment, vote_object);
                 graphs[i] = newgraph;
                 in_segment -> related_graph_index.push_back(i);
                 out_segment -> related_graph_index.push_back(i);
             }
+        }
+        std::vector<uint32_t> object_ids;
+        VLOG(1) << "has object 0";
+        for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
+            VLOG(1) << "has object " << it -> first;
+        }
+        for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
+            VLOG(1) << "has object " << it -> first;
         }
     }
 
@@ -75,8 +86,6 @@ public:
     ) {
         comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
         CAAS_COMM_MODE comm_type = meta["comm_type"];
-        std::string meta_server_addr = config -> meta_server_addr;
-        int meta_server_port = 20000;
         json recv = meta["recv"];
         CHECK(recv.size() == 1) << "have to be just 1 in segment";
         for (int i = 0; i < (int)recv.size(); i++) {
@@ -86,10 +95,9 @@ public:
             uint32_t object_id = item["object_id"];
             if (!in_segments.count(object_id)) {
                 in_segments[object_id] = caas_make_comm_object<vwT>(
-                    comm_type, meta_server_addr, meta_server_port, 
-                    item["object_id"], end - start, true, start, 
+                    comm_type, item["object_id"], end - start, true, start, 
                     item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_BROADCAST, reduce_op,
-                    base_vertex_value
+                    base_vertex_value, config
                 );
             }
             in_segment = in_segments[object_id];
@@ -107,10 +115,9 @@ public:
             uint32_t object_id = item["object_id"];
             if (!out_segments.count(object_id)) {
                 out_segments[object_id] = caas_make_comm_object<vwT>(
-                    comm_type, meta_server_addr, meta_server_port,
-                    item["object_id"], end - start, true, start, 
+                    comm_type, item["object_id"], end - start, true, start, 
                     item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_REDUCE, reduce_op,
-                    base_vertex_value
+                    base_vertex_value, config
                 );
             }
             out_segment = out_segments[object_id];
@@ -122,24 +129,23 @@ public:
         json vote_meta = meta["vote"];
         if (vote_object == nullptr) {
             vote_object = caas_make_comm_object<uint32_t>(
-                comm_type, meta_server_addr, meta_server_port,
-                vote_meta["object_id"], 1, false, 0, 
+                comm_type, vote_meta["object_id"], 1, false, 0, 
                 false, vote_meta["instances"], vote_meta["members"], CAAS_TYPE::UINT32, CAAS_OP::ALLREDUCE, CAAS_REDUCE_OP::ADD,
-                0
+                0, config
             );
         }
         return std::make_tuple(in_segment, out_segment, vote_object);
     }
 
-    void connect(uint32_t request_id) {
+    void connect(uint32_t request_id, uint32_t partition_id) {
         VLOG(1) << "connect to proxy";
         for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
-            it -> second -> caas_connect(request_id);
+            it -> second -> caas_connect(request_id, partition_id);
         }
         for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
-            it -> second -> caas_connect(request_id);
+            it -> second -> caas_connect(request_id, partition_id);
         }
-        vote_object -> caas_connect(request_id);
+        vote_object -> caas_connect(request_id, partition_id);
     }
 
     void disconnect() {
@@ -299,9 +305,16 @@ public:
         exec_diagonal_thread.join();
     }
 
-    uint32_t vote() {
+    uint32_t vote(int round) {
         VLOG(1) << "vote";
-        vote_object -> caas_do();
+        uint32_t msg = vote_object -> caas_do(
+            config -> dynamic_invoke && !stateful && round != 1, 
+            round, 
+            in_segments.size() + out_segments.size() + 1
+        );
+        if (msg == CAAS_KILL_MESSAGE) {
+            return CAAS_KILL_MESSAGE;
+        }
         uint32_t activated = vote_object -> vec[0];
         vote_object -> vec[0] = 0;
         return activated;

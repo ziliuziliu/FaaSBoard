@@ -11,22 +11,10 @@ namespace lambda = aws::lambda_runtime;
 static lambda::invocation_response my_handler(lambda::invocation_request const& req) {
     json payload = json::parse(req.payload);
     json request = json::parse(std::string(payload["body"]));
-    std::string graph_dir = request["graph_dir"];
-    std::string result_dir = request["result_dir"];
-    std::string meta_server_addr = request["meta_server"];
-    std::string s3_bucket = request["s3_bucket"];
-    uint32_t cores = request["cores"];
-    bool no_pipeline = request["no_pipeline"];
-    bool sparse_only = request["sparse_only"];
-    bool dense_only = request["dense_only"];
-    CAAS_SAVE_MODE save_mode = request["save_mode"];
     uint32_t request_id = request["request_id"];
+    uint32_t partition_id = request["partition_id"];
     uint32_t pr_iterations = request["pr_iterations"];
-    exec_config *config = new exec_config(
-        graph_dir, result_dir, meta_server_addr, s3_bucket,
-        no_pipeline, sparse_only, dense_only, cores, save_mode
-    );
-    pagerank(request_id, pr_iterations, config);
+    pagerank(request_id, partition_id, pr_iterations, exec_config::build_by_json(request));
     return lambda::invocation_response::success("pagerank success", "application/json");
 }
 

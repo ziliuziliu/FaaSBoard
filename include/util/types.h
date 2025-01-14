@@ -4,8 +4,14 @@
 #define CAAS_SPARSE_LIMIT 1000000
 #define CAAS_SPARSE_PAIR_LIMIT 100000
 
-#define CAAS_FD_NOTINQUEUE 0
-#define CAAS_FD_INQUEUE 1
+#define CAAS_META_SERVER_PORT 20000
+
+#define CAAS_KILL_MESSAGE 0xdeadbeef
+
+enum class RUN_TYPE : unsigned int {
+    LOCAL = 0,
+    LAMBDA = 1,
+};
 
 enum class EDGE_DIRECTION : unsigned int {
     INCOMING = 0,
@@ -53,12 +59,6 @@ enum class CAAS_SAVE_MODE : unsigned int {
     NO_SAVE = 0,
     SAVE_LOCAL = 1,
     SAVE_S3 = 2,
-};
-
-enum class SEGMENT_CONNECTION_STATUS : unsigned int {
-    CONNECTING = 0,
-    WORKING = 1,
-    DISCONNECTING = 2,
 };
 
 typedef void * empty;

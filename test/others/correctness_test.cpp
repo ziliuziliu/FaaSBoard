@@ -80,8 +80,8 @@ void read_result_from_s3() {
 }
 
 template <class T>
-T *read_result(exec_config *config, std::string result_dir, uint32_t total_v) {
-    switch (config -> save_mode) {
+T *read_result(CAAS_SAVE_MODE save_mode, std::string result_dir, uint32_t total_v) {
+    switch (save_mode) {
         case CAAS_SAVE_MODE::NO_SAVE:
             break;
         case CAAS_SAVE_MODE::SAVE_LOCAL:
@@ -90,7 +90,7 @@ T *read_result(exec_config *config, std::string result_dir, uint32_t total_v) {
             read_result_from_s3();
             return read_result_from_file<T>(result_dir, total_v);
         default:
-            LOG(FATAL) << "save mode " << FLAGS_save_mode << " not implemented";
+            LOG(FATAL) << "save mode " << (int)save_mode << " not implemented";
     }
     return nullptr;
 }
@@ -113,21 +113,17 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = 1;
-    exec_config *config = new exec_config(
-        FLAGS_graph_dir, FLAGS_result_dir, FLAGS_meta_server, FLAGS_s3_bucket,
-        FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode
-    );
-    if (config -> enable_s3()) {
+    if ((CAAS_SAVE_MODE)FLAGS_save_mode == CAAS_SAVE_MODE::SAVE_S3) {
         s3_init();
     }
     if (FLAGS_application == "bfs") {
-        uint32_t *dis2 = read_result<uint32_t>(config, FLAGS_result_dir, FLAGS_vertices);
+        uint32_t *dis2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
         g.read_txt(FLAGS_graph_file, false);
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         check_equal<uint32_t>(FLAGS_vertices, dis1, dis2);
     } else if (FLAGS_application == "pr") {
-        float *pr2 = read_result<float>(config, FLAGS_result_dir, FLAGS_vertices);
+        float *pr2 = read_result<float>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
         g.read_txt(FLAGS_graph_file, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);

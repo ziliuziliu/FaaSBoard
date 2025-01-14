@@ -12,6 +12,8 @@
 #include <immintrin.h>
 #include <bitset>
 
+std::mutex reduce_adaptive_segment_m;
+
 using reduce_uint32_f_single = std::function<uint32_t(uint32_t, uint32_t)>;
 using reduce_int_f_single = std::function<int(int, int)>;
 using reduce_float_f_single = std::function<float(float, float)>;

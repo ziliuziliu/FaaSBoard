@@ -23,10 +23,13 @@
 #include <chrono>
 #include <immintrin.h>
 #include <unordered_set>
+#include <condition_variable>
 
 #define MAX_CONNECTION 4096
 
-std::mutex reduce_adaptive_segment_m;
+uint64_t combine(uint32_t a, uint32_t b) {
+    return (uint64_t)a << 32 | b;
+}
 
 class segment_base {
     
@@ -38,11 +41,16 @@ public:
     std::mutex m;
     int root_fd;
     std::unordered_set<int> fds;
-    int cnt, bitmap_len, vec_len;
+    int round, reduce_cnt, bitmap_len, vec_len;
     uint32_t base_vertex_value, flag;
+    uint8_t instances;
     __m256i base_vertex_value_m256;
     bool initialized;
-    SEGMENT_CONNECTION_STATUS connection_status;
+    std::vector<std::thread> wait_threads;
+    std::vector<std::string> reinvoke_commands;
+    bool ready;
+    std::mutex ready_m;
+    std::condition_variable ready_cv;
 
     segment_base() {}
 
@@ -52,7 +60,9 @@ public:
         this -> root_fd = -1;
         this -> fds = std::unordered_set<int>();
         this -> flag = flag;
-        this -> cnt = 0;
+        this -> instances = caas_flag_get_instances(flag);
+        this -> round = 0;
+        this -> reduce_cnt = 0;
         this -> bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         this -> vec_len = vec_len;
         this -> data = new uint32_t[5 + bitmap_len + vec_len];
@@ -60,7 +70,9 @@ public:
         this -> base_vertex_value = base_vertex_value;
         this -> base_vertex_value_m256 = _mm256_set1_epi32(base_vertex_value);
         this -> initialized = false;
-        this -> connection_status = SEGMENT_CONNECTION_STATUS::CONNECTING;
+        this -> ready = false;
+        this -> wait_threads = std::vector<std::thread>();
+        this -> reinvoke_commands = std::vector<std::string>();
         reset();
     }
 
@@ -69,7 +81,7 @@ public:
     }
 
     void reset() {
-        cnt = 0;
+        reduce_cnt = 0;
         if (bm != nullptr) {
             bm -> clear();
         }
@@ -83,40 +95,11 @@ public:
     }
 
     bool all_connected() {
-        return caas_flag_get_instances(flag) == fds.size() + (root_fd != -1);
+        return instances == fds.size() + (root_fd != -1);
     }
 
     bool none_connected() {
         return fds.size() == 0 && root_fd == -1;
-    }
-
-    void add_fd(int fd, bool root) {
-        if (root) {
-            if (root_fd != -1) {
-                LOG(FATAL) << "try to add root fd " << fd << " but already have " << root_fd;
-            }
-            root_fd = fd;
-        } else {
-            if (fds.contains(fd)) {
-                LOG(FATAL) << "already have " << fd << " in fds";
-            }
-            fds.insert(fd);
-        }
-        if (all_connected()) {
-            connection_status = SEGMENT_CONNECTION_STATUS::WORKING;
-        }
-    }
-
-    void remove_fd(int fd) {
-        if (root_fd == fd) {
-            root_fd = -1;
-        } else {
-            if (!fds.contains(fd)) {
-                LOG(FATAL) << "don't have " << fd << " in fds";
-            }
-            fds.erase(fd);
-        }
-        connection_status = SEGMENT_CONNECTION_STATUS::DISCONNECTING;
     }
 
     void initialize(uint32_t *header) {
@@ -209,9 +192,10 @@ public:
 
             case COMM_TYPE::CAAS_DENSE: {
                 VLOG(1) << "reduce dense";
-                reduce_adaptive_segment_m.lock();
-                reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
-                reduce_adaptive_segment_m.unlock();
+                {
+                    std::lock_guard<std::mutex> reduce_lg(reduce_adaptive_segment_m);
+                    reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
+                }
                 break;
             }
 
@@ -236,40 +220,115 @@ public:
 };
 
 moodycamel::BlockingReaderWriterCircularBuffer<int> **fd_queue;
-std::unordered_map<int, int> fd_flag;
-std::unordered_map<uint32_t, std::unordered_map<uint32_t, segment_base *>> segment_table;
+std::unordered_map<int, int> fd_in_queue;
+std::unordered_map<int, int> thread_stuck;
 std::unordered_map<int, segment_base *> fd_segment;
+std::mutex fd_segment_m;
+std::unordered_map<uint64_t, segment_base *> segment_table;
+std::mutex segment_table_m;
+std::unordered_map<uint32_t, int> request_reinvoke_cnt;
+std::condition_variable request_reinvoke_cv;
+std::mutex request_reinvoke_m;
 
-void work(int thread_id) {
+void add_fd_to_segment(int fd, bool root, segment_base *segment) {
+    VLOG(1) << "add fd " << fd << " root " << (int)root;
+    if (root) {
+        if (segment -> root_fd != -1) {
+            LOG(FATAL) << "try to add root fd " << fd << " but already have " << segment -> root_fd;
+        }
+        segment -> root_fd = fd;
+    } else {
+        if (segment -> fds.contains(fd)) {
+            LOG(FATAL) << "already have " << fd << " in fds";
+        }
+        segment -> fds.insert(fd);
+    }
+    if (segment -> all_connected()) {
+        {
+            std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
+            segment -> ready = true;
+        }
+        segment -> ready_cv.notify_all();
+    }
+}
+
+void remove_fd_from_segment(int fd, segment_base *segment) {
+    VLOG(1) << "remove fd " << fd;
+    if (segment -> root_fd == fd) {
+        segment -> root_fd = -1;
+    } else {
+        if (!segment -> fds.contains(fd)) {
+            LOG(FATAL) << "don't have " << fd << " in fds";
+        }
+        segment -> fds.erase(fd);
+    }
+    {
+        std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
+        segment -> ready = false;
+    }
+}
+
+void work(int thread_id, int epoll_fd) {
     while (true) {
         int client_fd;
         fd_queue[thread_id] -> wait_dequeue(client_fd);
+        // VLOG(1) << "thread " << thread_id << " get fd " << client_fd;
+        cas<int>(&thread_stuck[thread_id], 0, 1);
         std::pair<char *, size_t> raw_data = caas_recv_all(client_fd);
-        segment_base *segment = fd_segment[client_fd];
+        cas<int>(&thread_stuck[thread_id], 1, 0);
+        // VLOG(1) << "fd " << client_fd << " msg len " << raw_data.second;
+        if (raw_data.second == 1) {
+            VLOG(1) << "error msg " << (int)raw_data.first[0];
+        }
+        segment_base *segment;
+        {
+            std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
+            segment = fd_segment[client_fd];
+        }
         if (raw_data.first == nullptr) {
+            VLOG(1) << "fd " << client_fd << " closed";
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
             close(client_fd);
-            VLOG(1) << "fd " << client_fd << " disconnected";
+            {
+                std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
+                fd_segment.erase(client_fd);
+            }
+            int now_reinvoke_cnt = -1;
+            {
+                std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
+                request_reinvoke_cnt[segment -> request_id]--;
+                now_reinvoke_cnt = request_reinvoke_cnt[segment -> request_id];
+            }
+            if (now_reinvoke_cnt == 0) {
+                request_reinvoke_cv.notify_all();
+            }
             segment -> m.lock();
-            segment -> remove_fd(client_fd);
+            remove_fd_from_segment(client_fd, segment);
+            segment -> m.unlock();
             if (segment -> none_connected()) {
-                segment_table[segment -> request_id].erase(segment -> object_id);
-                segment -> m.unlock();
+                {
+                    std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
+                    request_reinvoke_cnt.erase(segment -> request_id);
+                }
+                {
+                    std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
+                    segment_table.erase(combine(segment -> request_id, segment -> object_id));
+                }
                 VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
                 delete segment;
-            } else {
-                segment -> m.unlock();
             }
-            cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
+            cas<int>(&fd_in_queue[client_fd], 1, 0);
             continue;
         }
         uint32_t *data = (uint32_t *)raw_data.first;
         uint32_t request_id = data[0], object_id = data[1], flag = data[4];
-        std::vector<int> fd_list(segment -> fds.begin(), segment -> fds.end());
+        std::vector<int> fd_list;
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_OP::MASKED_BROADCAST:
                 VLOG(1) << "masked broadcast from request " << request_id 
                     << " object " << object_id
                     << " fd " << client_fd;
+                fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
                 #pragma omp parallel for
                 for (int i = 0; i < (int)fd_list.size(); i++) {
                     caas_send_all(fd_list[i], raw_data.first, raw_data.second);
@@ -285,8 +344,8 @@ void work(int thread_id) {
                     segment -> initialize((uint32_t *)raw_data.first);
                 }
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
-                segment -> cnt++;
-                if (segment -> cnt == (int)segment -> fds.size()) {
+                segment -> reduce_cnt++;
+                if (segment -> reduce_cnt == (int)segment -> instances - 1) {
                     COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size());
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
@@ -307,31 +366,104 @@ void work(int thread_id) {
                     segment -> initialize((uint32_t *)raw_data.first);
                 }
                 segment -> reduce_segment(raw_data.first, raw_data.second);
-                segment -> cnt++;
-                if (segment -> cnt == (int)segment -> fds.size()) {
+                segment -> reduce_cnt++;
+                if (segment -> reduce_cnt == (int)segment -> instances) {
+                    segment -> round++;
+                    if (FLAGS_dynamic_invoke && !segment -> reinvoke_commands.empty()) {
+                        VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
+                        segment -> m.unlock();
+                        cas<int>(&thread_stuck[thread_id], 0, 1);
+                        {
+                            std::unique_lock<std::mutex> request_reinvoke_ul(request_reinvoke_m);
+                            request_reinvoke_cv.wait(request_reinvoke_ul, [segment](){
+                                return request_reinvoke_cnt[segment -> request_id] == 0;
+                            });
+                        }
+                        cas<int>(&thread_stuck[thread_id], 1, 0);
+                        VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
+                        for (int i = 0; i < (int)segment -> reinvoke_commands.size(); i++) {
+                            std::string command = segment -> reinvoke_commands[i];
+                            std::thread([command](){
+                                VLOG(1) << "reinvoking: " << command;
+                                try {
+                                    int result = system(command.c_str());
+                                    if (result != 0) {
+                                        LOG(FATAL) << "reinvoke " << command << " failed";
+                                    }
+                                } catch (const std::exception &e) {
+                                    LOG(FATAL) << "reinvoke " << command << " failed: " << e.what();
+                                }
+                            }).detach();
+                        }
+                        segment -> reinvoke_commands.clear();
+                        segment -> m.unlock();
+                        cas<int>(&thread_stuck[thread_id], 0, 1);
+                        {
+                            std::unique_lock<std::mutex> ready_ul(segment -> ready_m);
+                            segment -> ready_cv.wait(ready_ul, [segment](){return segment -> ready;});
+                        }
+                        cas<int>(&thread_stuck[thread_id], 1, 0);
+                        segment -> m.lock();
+                    }
+                    if (!segment -> all_connected()) {
+                        LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
+                    }
                     std::pair<char *, size_t> new_data = segment -> make_segment();
+                    fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
                     #pragma omp parallel for
                     for (int i = 0; i < (int)fd_list.size(); i++) {
                         caas_send_all(fd_list[i], new_data.first, new_data.second);
                     }
                     segment -> reset();
+                } else if (FLAGS_dynamic_invoke) {
+                    int prefix_len = (5 + segment -> vec_len) << 2;
+                    if (raw_data.second != (size_t)prefix_len) {
+                        int total_fds = *(int *)(raw_data.first + prefix_len);
+                        std::thread wait_thread = std::thread(
+                            [](segment_base *segment, std::pair<char *, size_t> raw_data, int client_fd, int total_fds, int round, int prefix_len){
+                                std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_kill_wait_ms));
+                                segment -> m.lock();
+                                if (round == segment -> round) {
+                                    segment -> reinvoke_commands.push_back(
+                                        std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4)
+                                    );
+                                    segment -> m.unlock();
+                                    {
+                                        std::lock_guard<std::mutex> request_reinvoke_cnt_lg(request_reinvoke_m);
+                                        if (request_reinvoke_cnt.count(segment -> request_id) == 0) {
+                                            request_reinvoke_cnt[segment -> request_id] = 0;
+                                        }
+                                        request_reinvoke_cnt[segment -> request_id] += total_fds;
+                                    }
+                                    VLOG(1) << "send kill message to fd " << client_fd 
+                                        << " round " << round 
+                                        << " current round " << segment -> round
+                                        << " total fds " << total_fds;
+                                    uint32_t kill_msg = CAAS_KILL_MESSAGE;
+                                    caas_send_all(client_fd, (char *)&kill_msg, sizeof(uint32_t));
+                                } else {
+                                    segment -> m.unlock();
+                                }
+                            }, 
+                            segment, raw_data, client_fd, total_fds, segment -> round, prefix_len
+                        );
+                        wait_thread.detach();
+                        segment -> wait_threads.push_back(std::move(wait_thread));
+                    }
                 }
                 segment -> m.unlock();
                 break;
             default:
                 LOG(FATAL) << "undefined comm op " << (int)caas_flag_get_comm_op(flag);
         }
-        cas<int>(&fd_flag[client_fd], CAAS_FD_INQUEUE, CAAS_FD_NOTINQUEUE);
+        cas<int>(&fd_in_queue[client_fd], 1, 0);
     }
 }
 
 void run() {
     VLOG(1) << "proxy running on " << FLAGS_cores << " cores";
-    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
-    for (int i = 0; i < (int)FLAGS_cores; i++) {
-        fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
-        std::thread worker(work, i);
-        worker.detach();
+    if (FLAGS_dynamic_invoke) {
+        VLOG(1) << "dynamic invoke enabled";
     }
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_address;
@@ -347,6 +479,12 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
+    for (int i = 0; i < (int)FLAGS_cores; i++) {
+        fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
+        std::thread worker(work, i, epoll_fd);
+        worker.detach();
+    }
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         int num_events = epoll_wait(epoll_fd, events, MAX_CONNECTION, -1);
@@ -358,47 +496,56 @@ void run() {
                 event.events = EPOLLIN;
                 event.data.fd = client_fd;
                 epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
-                fd_flag[client_fd] = CAAS_FD_NOTINQUEUE;
-                uint32_t connect_data[6];
-                recv(client_fd, connect_data, sizeof(uint32_t) * 6, 0);
-                uint32_t request_id = connect_data[0], object_id = connect_data[1];
-                uint32_t vec_len = connect_data[2], base_vertex_value = connect_data[3];
-                uint32_t flag = connect_data[4];
-                bool has_bitmap = connect_data[5];
+                fd_in_queue[client_fd] = 0;
+                uint32_t connect_data[7];
+                recv(client_fd, connect_data, sizeof(uint32_t) * 7, 0);
+                uint32_t request_id = connect_data[0], partition_id = connect_data[1], object_id = connect_data[2];
+                uint32_t vec_len = connect_data[3], base_vertex_value = connect_data[4];
+                uint32_t flag = connect_data[5];
+                bool has_bitmap = connect_data[6];
                 VLOG(1) << "connection from request " << request_id 
+                    << " partition " << partition_id
                     << " object " << object_id 
                     << " vec_len " << vec_len
                     << " assigned fd " << client_fd;
-                if (segment_table.count(request_id) == 0) {
-                    segment_table[request_id] = std::unordered_map<uint32_t, segment_base *>();
-                }
                 segment_base *segment;
-                if (segment_table[request_id].count(object_id) == 0) {
-                    segment_table[request_id][object_id] = new segment_base(request_id, object_id, vec_len, base_vertex_value, flag, has_bitmap);
+                {
+                    std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
+                    uint64_t roid = combine(request_id, object_id);
+                    if (segment_table.count(roid) == 0) {
+                        segment_table[roid] = new segment_base(request_id, object_id, vec_len, base_vertex_value, flag, has_bitmap);
+                    }
+                    segment = segment_table[roid];
                 }
-                segment = segment_table[request_id][object_id];
-                fd_segment[client_fd] = segment;
-                segment -> add_fd(client_fd, caas_flag_get_root(flag));
-            } else if (events[i].events & EPOLLHUP) {
-                VLOG(1) << "fd " << events[i].data.fd << " epollhup";
+                add_fd_to_segment(client_fd, caas_flag_get_root(flag), segment);
+                {
+                    std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
+                    fd_segment[client_fd] = segment;
+                }
+            } else if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
+                LOG(FATAL) << "fd " << events[i].data.fd << " epollhup";
             } else if (events[i].events & EPOLLERR) {
                 LOG(FATAL) << "fd " << events[i].data.fd << " epollerr";
             } else {
                 int client_fd = events[i].data.fd;
-                if (fd_segment[client_fd] -> connection_status == SEGMENT_CONNECTION_STATUS::CONNECTING) {
-                    continue;
-                }
-                if (!cas<int>(&fd_flag[client_fd], CAAS_FD_NOTINQUEUE, CAAS_FD_INQUEUE)) {
+                if (!cas<int>(&fd_in_queue[client_fd], 0, 1)) {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
                 for (int i = 0; i < (int)FLAGS_cores; i++) {
+                    if (thread_stuck[i]) {
+                        continue;
+                    }
                     int current_size = fd_queue[i] -> size_approx();
                     if (current_size < mn_size) {
                         mn_size = current_size;
                         mn_thread_id = i;
                     }
                 }
+                if (mn_thread_id == -1) {
+                    LOG(FATAL) << "no available thread";
+                }
+                // VLOG(1) << "enqueue fd " << client_fd << " to thread " << mn_thread_id;
                 fd_queue[mn_thread_id] -> wait_enqueue(client_fd);
             }
         }
