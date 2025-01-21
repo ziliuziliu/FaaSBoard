@@ -187,9 +187,16 @@ public:
     }
 
     partition_result generate_checkerboard_partition_from_cuts(int cut, std::vector<uint32_t> cuts) {
+        VLOG(1) << "generate_check:";
+        VLOG(1) << "cut:" << cut;
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
             cuts[i] = cuts[i] / 64 * 64;
         }
+        for (const auto& cut : cuts) {
+            std::cout << cut << " ";
+        }
+        std::cout << std::endl;
+        
         partition_result result;
         #pragma omp parallel for
         for (int t = 0; t < cut; t++) {
@@ -211,6 +218,8 @@ public:
                     result.add(cuts[t], cuts[t + 1], cuts[i], cuts[i + 1], block_edges[i]);
             }
         }
+        VLOG(1) << "generate_checkerboard_partion";
+        result.print();
         return result;
     }
 
@@ -393,6 +402,7 @@ public:
         for (int i = 0; i < (int)subgraphs.size(); i++) {
             subgraphs[i] -> check();
         }
+        VLOG(1) << "subgraphs.size()="<<subgraphs.size();
         std::vector<graph_set<ewT> *> graphsets(subgraphs.size(), nullptr);
         #pragma omp parallel for
         for (int i = 0; i < (int)subgraphs.size(); i++) {
