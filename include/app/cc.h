@@ -19,8 +19,10 @@ void cc(uint32_t request_id, exec_config *config) {
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(CAAS_REDUCE_OP::MIN, 0xffffffff, config);
     }
-
-    graphs->set_begin_func(
+    if (request_id == 0xffffffff) {
+        return; // set 0xffffffff as the request id for keeping graph not evicted
+    }
+    graphs -> set_begin_func(
         [](graph<uint32_t, empty> *g, uint32_t v) {
             comm_object<uint32_t> *in_seg = g->in_segment;
             in_seg->bm->add(v - in_seg->start_index);

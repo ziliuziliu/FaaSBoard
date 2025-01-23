@@ -6,6 +6,8 @@ make
 2. build lambda code package
 make aws-lambda-package-lambda_bfs
 make aws-lambda-package-lambda_pr
+make aws-lambda-package-lambda_sssp
+make aws-lambda-package-lambda_cc
 
 3. start meta_server
 ./meta_server -proxy_server_list <proxy_server_ip> --v 1

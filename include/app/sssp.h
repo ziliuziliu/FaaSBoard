@@ -19,7 +19,10 @@ void sssp(uint32_t request_id, uint32_t root, exec_config *config) {
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, uint32_t>(CAAS_REDUCE_OP::MIN, 0xffffffff, config);
     }
-    graphs->set_begin_func(
+    if (request_id == 0xffffffff) {
+        return; // set 0xffffffff as the request id for keeping graph not evicted
+    }
+    graphs -> set_begin_func(
         [root](graph<uint32_t, uint32_t> *g, uint32_t v) {
             comm_object<uint32_t> *in_seg = g->in_segment;
             if (v == root) {
@@ -68,10 +71,10 @@ void sssp(uint32_t request_id, uint32_t root, exec_config *config) {
                     uint32_t *src_addr = in_seg->vec + (src - in_seg->start_index);
                     new_dist = std::min(new_dist, *src_addr + weight);
                 }
-                if (new_dist < *dst_addr){
-                    *dst_addr = new_dist;
-                    out_seg->bm->add(dst - out_seg->start_index);
-                }
+            }
+            if (new_dist < *dst_addr){
+                *dst_addr = new_dist;
+                out_seg->bm->add(dst - out_seg->start_index);
             }
         }
     );
