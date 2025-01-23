@@ -181,6 +181,10 @@ struct exec_config {
             }
             reinvoke_command.append(request.dump());
             reinvoke_command.append("'");
+            reinvoke_command.append(" result");
+            reinvoke_command.append(std::to_string(partition_id));
+            reinvoke_command.append(std::to_string(partition_id));
+            reinvoke_command.append(".txt");
         } else {
             LOG(FATAL) << "run type not implemented";
         }
