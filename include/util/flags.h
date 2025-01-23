@@ -16,6 +16,7 @@ DEFINE_uint32(vertices, 0, "#vertices");
 DEFINE_uint32(edges, 0, "#edges");
 DEFINE_uint32(request_id, 0, "request id");
 DEFINE_uint32(bfs_root, 0, "root vertex for bfs");
+DEFINE_uint32(sssp_root, 0, "root vertex for sssp");
 DEFINE_int32(pr_iterations, 0, "iterations for pagerank");
 DEFINE_string(graph_dir, ".", "directory for graph dataset in csr binary");
 DEFINE_string(result_dir, ".", "directory for compute result");
@@ -30,6 +31,7 @@ DEFINE_bool(dense_only, false, "dense mode");
 DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");
 DEFINE_string(s3_bucket, "", "s3 bucket name");
 DEFINE_bool(undirected, false, "whether it's undirected graph (0: directed, 1: undirected)");
+DEFINE_string(ewT, "empty", "Whether to specify the edge weight type (empty,int,uint32_t,float)");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);
