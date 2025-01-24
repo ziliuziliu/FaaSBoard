@@ -235,7 +235,7 @@ public:
         omp_set_num_threads(config -> cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " exec diagonal";
-            graphs[i] -> exec_diagonal(round, i);
+            graphs[i] -> exec_diagonal(round);
         }
     }
 
@@ -244,7 +244,7 @@ public:
         exec_each_initialize();
         std::string info_prefix = "round " + std::to_string(round) + " ";
         int graph_cnt = graphs.size();
-        moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt), exec_diagonal_queue(graph_cnt);
+        moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt);
         auto in_function = [&](comm_object<vwT> *in_segment){
             in_segment -> print(round);
             in_segment -> caas_do();
@@ -257,9 +257,6 @@ public:
             out_segment -> print(round);
             out_segment -> caas_do();
             out_segment -> print(round);
-            for (auto i : out_segment -> related_graph_index) {
-                exec_diagonal_queue.enqueue(i);
-            }
         };
         std::vector<std::thread> in_threads, out_threads;
         for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
@@ -277,14 +274,6 @@ public:
                 }
             }
         });
-        std::thread exec_diagonal_thread([&](){
-            for (int i = 0; i < graph_cnt; i++) {
-                int index;
-                exec_diagonal_queue.wait_dequeue(index);
-                VLOG(1) << "graph " << index << " exec diagonal";
-                graphs[index] -> exec_diagonal(round, index);
-            }
-        });
         for (int i = 0; i < (int)in_threads.size(); i++) {
             in_threads[i].join();
         }
@@ -292,7 +281,10 @@ public:
         for (int i = 0; i < (int)out_threads.size(); i++) {
             out_threads[i].join();
         }
-        exec_diagonal_thread.join();
+        for (int i = 0; i < graph_cnt; i++) {
+            VLOG(1) << "graph " << i << " exec diagonal";
+            graphs[i] -> exec_diagonal(round);
+        }
     }
 
     uint32_t vote() {
