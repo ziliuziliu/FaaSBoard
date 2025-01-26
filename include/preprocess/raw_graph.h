@@ -110,7 +110,6 @@ public:
 
     // require total_block to be square number
     partition_result mondriaan_partition_row_column(int total_block) {
-        VLOG(1) << "mondriaan_partition_row_column the partition must be regular, fix this!";
         timer t;
         t.tick("partition time");
         int cut = sqrt(total_block);
@@ -149,7 +148,6 @@ public:
 
     // require total_block to be square number
     partition_result mondriaan_partition_column_row(int total_block) {
-        VLOG(1) << "mondriaan_partition_column_row the partition must be regular, fix this!";
         timer t;
         t.tick("partition time");
         int cut = sqrt(total_block);
@@ -190,11 +188,7 @@ public:
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
             cuts[i] = cuts[i] / 64 * 64;
         }
-        for (const auto& cut : cuts) {
-            std::cout << cut << " ";
-        }
-        std::cout << std::endl;
-        
+        VLOG(1) << "aligned cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
         partition_result result;
         #pragma omp parallel for
         for (int t = 0; t < cut; t++) {
@@ -216,8 +210,6 @@ public:
                     result.add(cuts[t], cuts[t + 1], cuts[i], cuts[i + 1], block_edges[i]);
             }
         }
-        VLOG(1) << "generate_checkerboard_partion";
-        result.print();
         return result;
     }
 

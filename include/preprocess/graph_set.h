@@ -162,8 +162,7 @@ public:
         return new_graphsets;
     }
 
-    // Targeted at 4 partition strategies (row,column,mondriaan_row_column,mondriaan_column_row)
-    static std::vector<graph_set<ewT> *> binpack_for_owners(std::vector<graph_set<ewT> *> graphsets, partition_result raw_result, int total_block) {
+    static std::vector<graph_set<ewT> *> pack_graph(std::vector<graph_set<ewT> *> graphsets, partition_result raw_result) {
         int* owner_flag = new int[graphsets.size()]();
         #pragma omp parallel for
         for (int t = 0; t < (int)raw_result.blocks.size(); t++) {
@@ -218,8 +217,8 @@ public:
                   << ", Avg Work: " << avg_work 
                   << ", Max Work: " << max_work 
                   << ", Min Work: " << min_work
-                  << ", maxRatio: " << (double)max_work / avg_work 
-                  << ", minRatio: " << (double)min_work / avg_work
+                  << ", Max Ratio: " << (double)max_work / avg_work 
+                  << ", Min Ratio: " << (double)min_work / avg_work
                   << std::endl;
         uint64_t total_comm = 0, max_comm, min_comm;
         double avg_comm;

@@ -66,7 +66,7 @@ private:
         int cut = cuts.size() - 1;
         partition_result processed_result = graph.generate_checkerboard_partition_from_cuts(cut, cuts);
         graphsets = graph.partition(processed_result);
-        std::vector<graph_set<ewT>*> new_graphsets = graph_set<ewT>::binpack_for_owners(graphsets, result, total_block);
+        std::vector<graph_set<ewT>*> new_graphsets = graph_set<ewT>::pack_graph(graphsets, result);
         handle_save(new_graphsets);
     }
 
