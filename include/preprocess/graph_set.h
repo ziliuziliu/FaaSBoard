@@ -162,6 +162,44 @@ public:
         return new_graphsets;
     }
 
+    static std::vector<graph_set<ewT> *> pack_graph(std::vector<graph_set<ewT> *> graphsets, partition_result raw_result) {
+        int* owner_flag = new int[graphsets.size()]();
+        #pragma omp parallel for
+        for (int t = 0; t < (int)raw_result.blocks.size(); t++) {
+            partition_block raw_block = raw_result.blocks[t];
+            for (int i = 0; i < (int)graphsets.size(); i++) {
+                graph_set<ewT>* graphset = graphsets[i];
+                if (!graphset || graphset->graphs.empty()) continue;
+                graph<ewT>* graph = graphset->graphs[0];
+                if (owner_flag[i] == 0 &&
+                    graph->from_source >= raw_block.from_source &&
+                    graph->to_source <= raw_block.to_source &&
+                    graph->from_dest >= raw_block.from_dest &&
+                    graph->to_dest <= raw_block.to_dest) {
+                        owner_flag[i] = t + 1;
+                }
+            }
+        }
+
+        std::vector<graph_set<ewT> *> new_graphsets;
+        std::vector<bool> deleted(graphsets.size(), false);
+        for (int i = 0; i < (int)graphsets.size(); i++) {
+            for (int j = i + 1; j < (int)graphsets.size(); j++) {
+                if (deleted[i] || deleted[j] || owner_flag[i] != owner_flag[j])
+                    continue;
+                graphsets[i] = new graph_set<ewT>(graphsets[i], graphsets[j]);
+                deleted[j] = true;
+            }
+        }
+        for (int i = 0; i < (int)graphsets.size(); i++) {
+            if (!deleted[i])
+                new_graphsets.push_back(graphsets[i]);
+        }
+        delete[] owner_flag;
+        return new_graphsets;
+}
+
+
     static void simulation(std::vector<graph_set<ewT> *> graphsets) {
         std::vector<uint32_t> works;
         uint32_t total_work = 0, min_work, max_work;
@@ -179,7 +217,8 @@ public:
                   << ", Avg Work: " << avg_work 
                   << ", Max Work: " << max_work 
                   << ", Min Work: " << min_work
-                  << ", Ratio: " << (double)max_work / avg_work 
+                  << ", Max Ratio: " << (double)max_work / avg_work 
+                  << ", Min Ratio: " << (double)min_work / avg_work
                   << std::endl;
         uint64_t total_comm = 0, max_comm, min_comm;
         double avg_comm;

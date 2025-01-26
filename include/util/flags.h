@@ -32,6 +32,7 @@ DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)"
 DEFINE_string(s3_bucket, "", "s3 bucket name");
 DEFINE_bool(undirected, false, "whether it's undirected graph (0: directed, 1: undirected)");
 DEFINE_string(ewT, "empty", "Whether to specify the edge weight type (empty,int,uint32_t,float)");
+DEFINE_string(strategy, "checkerboard", "partitioning strategy: row, column, mondriaan_row_column, mondriaan_column, cycle, stagger, checkerboard");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);

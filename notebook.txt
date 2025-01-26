@@ -16,13 +16,13 @@ make aws-lambda-package-lambda_cc
 ./proxy_server -cores 16 --v 1 > proxy.txt 2>&1
 
 5. preprocess_and_save(bfs,pr)
-sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> -undirected <is_undirected> --v 1
+sudo ./preprocess_and_save -strategy <partition strategy> -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> -undirected <is_undirected> --v 1
 
 6. preprocess_and_save(sssp)
-sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -ewT <ewT> -partitions <partitions> -undirected <is_undirected> --v 1
+sudo ./preprocess_and_save -strategy <partition strategy> -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -ewT <ewT> -partitions <partitions> -undirected <is_undirected> --v 1
 
 7. preprocess_and_save(cc)
-sudo ./preprocess_and_save -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> -undirected=true --v 1
+sudo ./preprocess_and_save -strategy <partition strategy> -graph_file <graph_file> -graph_root_dir <graph_root_dir> -vertices <vertices> -edges <edges> -partitions <partitions> -undirected=true --v 1
 
 8. run bfs
 sudo numactl --physcpubind=0,1 ./local_bfs -request_id 123 -bfs_root <bfs_root> -graph_dir <graph_dir> -result_dir <result_dir> -cores 2 --sparse-only --meta-server <meta_server_ip> --v 1 > 0.txt 2>&1 & \
