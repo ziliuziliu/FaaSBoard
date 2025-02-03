@@ -1,7 +1,7 @@
 #include "preprocess/raw_graph.h"
 #include "util/log.h"
 #include "util/flags.h"
-#include "util/s3.h"
+#include "util/sdk.h"
 
 #include <cstring>
 #include <queue>
@@ -113,8 +113,13 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = 1;
-    if ((CAAS_SAVE_MODE)FLAGS_save_mode == CAAS_SAVE_MODE::SAVE_S3) {
-        s3_init();
+    exec_config *config = exec_config::build_by_flags();
+    VLOG(1) << "aws sdk init";
+    if (config -> enable_sdk()) {
+        sdk_init();
+    }
+    if (config -> enable_s3_sdk()) {
+        s3_sdk_init();
     }
     if (FLAGS_application == "bfs") {
         uint32_t *dis2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);

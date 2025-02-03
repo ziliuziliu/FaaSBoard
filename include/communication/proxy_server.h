@@ -9,6 +9,7 @@
 #include "util/spsc/readerwritercircularbuffer.h"
 #include "util/types.h"
 #include "util/timer.h"
+#include "util/sdk.h"
 
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -231,7 +232,6 @@ std::condition_variable request_reinvoke_cv;
 std::mutex request_reinvoke_m;
 
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
-    VLOG(1) << "add fd " << fd << " root " << (int)root;
     if (root) {
         if (segment -> root_fd != -1) {
             LOG(FATAL) << "try to add root fd " << fd << " but already have " << segment -> root_fd;
@@ -243,6 +243,8 @@ void add_fd_to_segment(int fd, bool root, segment_base *segment) {
         }
         segment -> fds.insert(fd);
     }
+    VLOG(1) << "add fd " << fd << " root " << (int)root << " current fds " << (int)segment -> fds.size()
+        << "all connected" << segment -> all_connected();
     if (segment -> all_connected()) {
         {
             std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
@@ -253,7 +255,6 @@ void add_fd_to_segment(int fd, bool root, segment_base *segment) {
 }
 
 void remove_fd_from_segment(int fd, segment_base *segment) {
-    VLOG(1) << "remove fd " << fd;
     if (segment -> root_fd == fd) {
         segment -> root_fd = -1;
     } else {
@@ -266,6 +267,7 @@ void remove_fd_from_segment(int fd, segment_base *segment) {
         std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
         segment -> ready = false;
     }
+    VLOG(1) << "remove fd " << fd << " current fds " << (int)segment -> fds.size();
 }
 
 void work(int thread_id, int epoll_fd) {
@@ -369,6 +371,7 @@ void work(int thread_id, int epoll_fd) {
                 segment -> reduce_cnt++;
                 if (segment -> reduce_cnt == (int)segment -> instances) {
                     segment -> round++;
+                    VLOG(1) << "now we have enough instances, new round " << segment -> round;
                     if (FLAGS_dynamic_invoke && !segment -> reinvoke_commands.empty()) {
                         VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
                         segment -> m.unlock();
@@ -380,22 +383,34 @@ void work(int thread_id, int epoll_fd) {
                             });
                         }
                         cas<int>(&thread_stuck[thread_id], 1, 0);
+                        segment -> m.lock();
                         VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
                         for (int i = 0; i < (int)segment -> reinvoke_commands.size(); i++) {
                             std::string command = segment -> reinvoke_commands[i];
                             std::thread([command](){
                                 VLOG(1) << "reinvoking: " << command;
-                                try {
-                                    int result = system(command.c_str());
-                                    if (result != 0) {
-                                        LOG(FATAL) << "reinvoke " << command << " failed";
+                                if (command.substr(0, 4) == "sudo") {
+                                    try {
+                                        int result = system(command.c_str());
+                                        if (result != 0) {
+                                            LOG(FATAL) << "reinvoke " << command << " failed";
+                                        }
+                                    } catch (const std::exception &e) {
+                                        LOG(FATAL) << "reinvoke " << command << " failed: " << e.what();
                                     }
-                                } catch (const std::exception &e) {
-                                    LOG(FATAL) << "reinvoke " << command << " failed: " << e.what();
+                                } else if (command.substr(0, 3) == "aws") {
+                                    std::istringstream iss(command.substr(4));
+                                    std::string function_name;
+                                    iss >> function_name;
+                                    std::string payload = command.substr(5 + function_name.length());
+                                    lambda_invoke(function_name, payload);
+                                } else {
+                                    LOG(FATAL) << "reinvoke command not implemented";
                                 }
                             }).detach();
                         }
                         segment -> reinvoke_commands.clear();
+                        VLOG(1) << "wait for all instances to be ready";
                         segment -> m.unlock();
                         cas<int>(&thread_stuck[thread_id], 0, 1);
                         {
@@ -404,6 +419,7 @@ void work(int thread_id, int epoll_fd) {
                         }
                         cas<int>(&thread_stuck[thread_id], 1, 0);
                         segment -> m.lock();
+                        VLOG(1) << "all instances are ready";
                     }
                     if (!segment -> all_connected()) {
                         LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
@@ -416,6 +432,7 @@ void work(int thread_id, int epoll_fd) {
                     }
                     segment -> reset();
                 } else if (FLAGS_dynamic_invoke) {
+                    VLOG(1) << "current round " << segment -> round << " reduce_cnt " << segment -> reduce_cnt;
                     int prefix_len = (5 + segment -> vec_len) << 2;
                     if (raw_data.second != (size_t)prefix_len) {
                         int total_fds = *(int *)(raw_data.first + prefix_len);
@@ -424,9 +441,9 @@ void work(int thread_id, int epoll_fd) {
                                 std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_kill_wait_ms));
                                 segment -> m.lock();
                                 if (round == segment -> round) {
-                                    segment -> reinvoke_commands.push_back(
-                                        std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4)
-                                    );
+                                    std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
+                                    VLOG(1) << "decide to kill " << command;
+                                    segment -> reinvoke_commands.push_back(command);
                                     segment -> m.unlock();
                                     {
                                         std::lock_guard<std::mutex> request_reinvoke_cnt_lg(request_reinvoke_m);
@@ -461,6 +478,14 @@ void work(int thread_id, int epoll_fd) {
 }
 
 void run() {
+    exec_config *config = exec_config::build_by_flags();
+    VLOG(1) << "aws sdk init";
+    if (config -> enable_sdk()) {
+        sdk_init();
+    }
+    if (config -> enable_lambda_sdk()) {
+        lambda_sdk_init();
+    }
     VLOG(1) << "proxy running on " << FLAGS_cores << " cores";
     if (FLAGS_dynamic_invoke) {
         VLOG(1) << "dynamic invoke enabled";

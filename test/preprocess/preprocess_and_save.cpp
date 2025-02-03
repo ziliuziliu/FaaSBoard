@@ -6,6 +6,7 @@
 #include "util/flags.h"
 
 #include <cstring>
+#include <cmath>
 
 int main(int argc, char *argv[]) {
 
@@ -22,7 +23,12 @@ int main(int argc, char *argv[]) {
     int total_block = FLAGS_partitions, cut;
 
     VLOG(1) << "optimal cut + binpack";
-    cut = sqrt((double)total_block) + 1;
+    if (int(std::sqrt(total_block)) * int(std::sqrt(total_block)) == total_block) {
+        cut = std::sqrt(total_block);
+    } else {
+        cut = std::ceil(std::sqrt(total_block));
+    }
+    VLOG(1) << "cut: " << cut;
     result = g.checkerboard_partition(cut);
     result.print();
     double unbalance_ratio = result.get_unbalance_ratio();

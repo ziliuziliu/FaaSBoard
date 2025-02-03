@@ -19,6 +19,8 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
     t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<float, empty>(CAAS_REDUCE_OP::ADD, 0.0, config);
+    } else {
+        graphs -> config = config;
     }
     graphs -> set_begin_func(
         [](graph<float, empty> *g, uint32_t v){
@@ -76,9 +78,12 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
     graphs -> begin(0);
     bool kill = false;
     if (!config -> no_pipeline) {
+        timer t2;
         for (int round = 1; round <= iterations; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
+            t2.tick(info_prefix + "vote");
             uint32_t activated = graphs -> vote(round);
+            t2.from_tick();
             if (round == 1) {
                 t.from_tick();
             }
@@ -86,9 +91,9 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
                 kill = true;
                 break;
             }
-            t.tick(info_prefix);
+            t2.tick(info_prefix + "run");
             graphs -> pipeline_run(round);
-            t.from_tick();
+            t2.from_tick();
         }
     } else {
         for (int round = 1; round <= iterations; round++) {

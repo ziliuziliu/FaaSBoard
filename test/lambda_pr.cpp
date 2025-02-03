@@ -9,8 +9,11 @@ using json = nlohmann::json;
 namespace lambda = aws::lambda_runtime;
 
 static lambda::invocation_response my_handler(lambda::invocation_request const& req) {
-    json payload = json::parse(req.payload);
-    json request = json::parse(std::string(payload["body"]));
+    VLOG(1) << "payload " << req.payload;
+    if (req.payload == "\"ping\"") {
+        return lambda::invocation_response::success("pong", "application/json");
+    }
+    json request = json::parse(req.payload);
     uint32_t request_id = request["request_id"];
     uint32_t partition_id = request["partition_id"];
     uint32_t pr_iterations = request["pr_iterations"];

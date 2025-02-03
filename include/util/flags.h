@@ -56,6 +56,7 @@ struct exec_config {
     RUN_TYPE run_type;
     json request;
     std::string reinvoke_command;
+    int pr_iterations;
 
     exec_config() {}
     
@@ -84,6 +85,7 @@ struct exec_config {
             FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_dynamic_invoke, 
             FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode, RUN_TYPE::LOCAL
         );
+        config -> pr_iterations = FLAGS_pr_iterations;
         return config;
     }
 
@@ -95,20 +97,28 @@ struct exec_config {
             request["cores"], (CAAS_SAVE_MODE)request["save_mode"], RUN_TYPE::LAMBDA
         );
         config -> request = request;
+        if (config -> get_app() == "pr") {
+            config -> pr_iterations = request["pr_iterations"];
+        }
         return config;
     }
 
     void check() {
-        if (partition_id == 0xffffffff) {
-            LOG(FATAL) << "need to provide partition id";
-        }
-        if (enable_s3() && s3_bucket == "") {
+        if (enable_s3_sdk() && s3_bucket == "") {
             LOG(FATAL) << "need to provide s3 bucket name";
         }
     }
 
-    bool enable_s3() {
+    bool enable_sdk() {
+        return enable_s3_sdk() || enable_lambda_sdk();
+    }
+
+    bool enable_s3_sdk() {
         return save_mode == CAAS_SAVE_MODE::SAVE_S3;
+    }
+
+    bool enable_lambda_sdk() {
+        return FLAGS_dynamic_invoke;
     }
     
     std::string get_app() {
@@ -151,7 +161,7 @@ struct exec_config {
             }
             reinvoke_command.append(" --save-mode ");
             reinvoke_command.append(std::to_string((int)save_mode));
-            if (enable_s3()) {
+            if (enable_s3_sdk()) {
                 reinvoke_command.append(" --s3-bucket ");
                 reinvoke_command.append(s3_bucket);
             }
@@ -164,27 +174,21 @@ struct exec_config {
             }
             else if (app == "pr") {
                 reinvoke_command.append(" --pr-iterations ");
-                reinvoke_command.append(std::to_string(FLAGS_pr_iterations - round + 1));
+                reinvoke_command.append(std::to_string(pr_iterations - round + 1));
             }
             reinvoke_command.append(" --v 1 > ");
             reinvoke_command.append(std::to_string(partition_id));
             reinvoke_command.append(std::to_string(partition_id));
             reinvoke_command.append(".txt 2>&1");
         } else if (run_type == RUN_TYPE::LAMBDA) {
-            reinvoke_command = "aws lambda invoke --function-name ";
-            reinvoke_command.append(app);
-            reinvoke_command.append("_");
-            reinvoke_command.append(std::to_string(partition_id));
-            reinvoke_command.append(" --payload '");
+            reinvoke_command = "aws ";
+            reinvoke_command.append(request["function_name"]);
+            reinvoke_command.append(" ");
+            request["dynamic_invoke"] = true;
             if (app == "pr") {
-                request["pr_iterations"] = (int)request["pr_iterations"] - round + 1;
+                request["pr_iterations"] = pr_iterations - round + 1;
             }
             reinvoke_command.append(request.dump());
-            reinvoke_command.append("'");
-            reinvoke_command.append(" result");
-            reinvoke_command.append(std::to_string(partition_id));
-            reinvoke_command.append(std::to_string(partition_id));
-            reinvoke_command.append(".txt");
         } else {
             LOG(FATAL) << "run type not implemented";
         }

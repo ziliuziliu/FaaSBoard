@@ -8,7 +8,7 @@ include(CMakePrintHelpers)
 # Define the project and its language
 project(faasboard CXX)
 
-set(SERVICE_COMPONENTS s3)
+set(SERVICE_COMPONENTS s3 lambda)
 
 # Find OpenMP
 find_package(OpenMP REQUIRED)
@@ -41,6 +41,7 @@ add_executable(meta_server ${CMAKE_SOURCE_DIR}/test/meta_server.cpp)
 add_executable(proxy_server ${CMAKE_SOURCE_DIR}/test/proxy_server.cpp)
 add_executable(correctness_test ${CMAKE_SOURCE_DIR}/test/others/correctness_test.cpp)
 add_executable(txt2csr ${CMAKE_SOURCE_DIR}/test/preprocess/txt2csr.cpp)
+add_executable(lambda_test ${CMAKE_SOURCE_DIR}/test/others/lambda_test.cpp)
 
 # add_executable(row ${CMAKE_SOURCE_DIR}/test/preprocess/row.cpp)
 # add_executable(column ${CMAKE_SOURCE_DIR}/test/preprocess/column.cpp)
@@ -58,6 +59,7 @@ target_link_libraries(meta_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags $
 target_link_libraries(proxy_server PRIVATE OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(correctness_test PRIVATE OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(txt2csr PRIVATE OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(lambda_test PRIVATE OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
 
 # target_link_libraries(row PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)
 # target_link_libraries(column PRIVATE OpenMP::OpenMP_CXX glog::glog gflags)

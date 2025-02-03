@@ -33,8 +33,12 @@ public:
         out_segments = std::unordered_map<uint32_t, comm_object<vwT> *>();
         vote_object = nullptr;
         stateful = false;
-        if (config -> enable_s3()) {
-            s3_init();
+        VLOG(1) << "aws sdk init";
+        if (config -> enable_sdk()) {
+            sdk_init();
+        }
+        if (config -> enable_s3_sdk()) {
+            s3_sdk_init();
         }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
