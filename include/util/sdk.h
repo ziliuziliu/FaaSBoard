@@ -6,6 +6,8 @@
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
+#include <aws/core/client/ClientConfiguration.h>
+#include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
@@ -37,6 +39,7 @@ void s3_sdk_init() {
 
 void lambda_sdk_init() {
     Aws::Client::ClientConfiguration clientConfig;
+    clientConfig.retryStrategy = nullptr;
     lambda_client = new Aws::Lambda::LambdaClient(clientConfig);
 }
 

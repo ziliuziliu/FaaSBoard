@@ -19,7 +19,7 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(CAAS_REDUCE_OP::UP, 0xffffffff, config);
     } else {
-        graphs -> config = config;
+        graphs -> update_config(config);
     }
     graphs -> set_begin_func(
         [root](graph<uint32_t, empty> *g, uint32_t v){

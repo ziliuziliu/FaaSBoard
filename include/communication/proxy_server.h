@@ -47,11 +47,7 @@ public:
     uint8_t instances;
     __m256i base_vertex_value_m256;
     bool initialized;
-    std::vector<std::thread> wait_threads;
     std::vector<std::string> reinvoke_commands;
-    bool ready;
-    std::mutex ready_m;
-    std::condition_variable ready_cv;
 
     segment_base() {}
 
@@ -71,8 +67,6 @@ public:
         this -> base_vertex_value = base_vertex_value;
         this -> base_vertex_value_m256 = _mm256_set1_epi32(base_vertex_value);
         this -> initialized = false;
-        this -> ready = false;
-        this -> wait_threads = std::vector<std::thread>();
         this -> reinvoke_commands = std::vector<std::string>();
         reset();
     }
@@ -230,6 +224,8 @@ std::mutex segment_table_m;
 std::unordered_map<uint32_t, int> request_reinvoke_cnt;
 std::condition_variable request_reinvoke_cv;
 std::mutex request_reinvoke_m;
+std::unordered_map<uint32_t, REQUEST_EXECUTION_STATUS> request_status_table;
+std::mutex request_status_table_m;
 
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
     if (root) {
@@ -243,15 +239,10 @@ void add_fd_to_segment(int fd, bool root, segment_base *segment) {
         }
         segment -> fds.insert(fd);
     }
-    VLOG(1) << "add fd " << fd << " root " << (int)root << " current fds " << (int)segment -> fds.size()
-        << "all connected" << segment -> all_connected();
-    if (segment -> all_connected()) {
-        {
-            std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
-            segment -> ready = true;
-        }
-        segment -> ready_cv.notify_all();
-    }
+    VLOG(1) << "object id " << segment -> object_id
+        << " add fd " << fd << " root " << (int)root 
+        << " current fds " << (int)segment -> fds.size()
+        << " all connected " << segment -> all_connected();
 }
 
 void remove_fd_from_segment(int fd, segment_base *segment) {
@@ -263,22 +254,18 @@ void remove_fd_from_segment(int fd, segment_base *segment) {
         }
         segment -> fds.erase(fd);
     }
-    {
-        std::lock_guard<std::mutex> ready_lg(segment -> ready_m);
-        segment -> ready = false;
-    }
-    VLOG(1) << "remove fd " << fd << " current fds " << (int)segment -> fds.size();
+    VLOG(1) << "object id " << segment -> object_id
+        << " remove fd " << fd 
+        << " current fds " << (int)segment -> fds.size();
 }
 
 void work(int thread_id, int epoll_fd) {
     while (true) {
         int client_fd;
         fd_queue[thread_id] -> wait_dequeue(client_fd);
-        // VLOG(1) << "thread " << thread_id << " get fd " << client_fd;
         cas<int>(&thread_stuck[thread_id], 0, 1);
         std::pair<char *, size_t> raw_data = caas_recv_all(client_fd);
         cas<int>(&thread_stuck[thread_id], 1, 0);
-        // VLOG(1) << "fd " << client_fd << " msg len " << raw_data.second;
         if (raw_data.second == 1) {
             VLOG(1) << "error msg " << (int)raw_data.first[0];
         }
@@ -308,6 +295,10 @@ void work(int thread_id, int epoll_fd) {
             remove_fd_from_segment(client_fd, segment);
             segment -> m.unlock();
             if (segment -> none_connected()) {
+                {
+                    std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                    request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::INIT;
+                }
                 {
                     std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
                     request_reinvoke_cnt.erase(segment -> request_id);
@@ -371,10 +362,10 @@ void work(int thread_id, int epoll_fd) {
                 segment -> reduce_cnt++;
                 if (segment -> reduce_cnt == (int)segment -> instances) {
                     segment -> round++;
-                    VLOG(1) << "now we have enough instances, new round " << segment -> round;
+                    VLOG(1) << "now we have enough instances, reduce_cnt " << segment -> reduce_cnt;
                     if (FLAGS_dynamic_invoke && !segment -> reinvoke_commands.empty()) {
-                        VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
                         segment -> m.unlock();
+                        VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
                         cas<int>(&thread_stuck[thread_id], 0, 1);
                         {
                             std::unique_lock<std::mutex> request_reinvoke_ul(request_reinvoke_m);
@@ -385,6 +376,11 @@ void work(int thread_id, int epoll_fd) {
                         cas<int>(&thread_stuck[thread_id], 1, 0);
                         segment -> m.lock();
                         VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
+                        segment -> reduce_cnt -= segment -> reinvoke_commands.size();
+                        {
+                            std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                            request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::REINVOKE;
+                        }
                         for (int i = 0; i < (int)segment -> reinvoke_commands.size(); i++) {
                             std::string command = segment -> reinvoke_commands[i];
                             std::thread([command](){
@@ -410,29 +406,25 @@ void work(int thread_id, int epoll_fd) {
                             }).detach();
                         }
                         segment -> reinvoke_commands.clear();
-                        VLOG(1) << "wait for all instances to be ready";
-                        segment -> m.unlock();
-                        cas<int>(&thread_stuck[thread_id], 0, 1);
-                        {
-                            std::unique_lock<std::mutex> ready_ul(segment -> ready_m);
-                            segment -> ready_cv.wait(ready_ul, [segment](){return segment -> ready;});
+                    } else {
+                        if (!segment -> all_connected()) {
+                            LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
                         }
-                        cas<int>(&thread_stuck[thread_id], 1, 0);
-                        segment -> m.lock();
-                        VLOG(1) << "all instances are ready";
+                        {
+                            std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                            request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::EXECUTE;
+                        }
+                        std::pair<char *, size_t> new_data = segment -> make_segment();
+                        fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
+                        #pragma omp parallel for
+                        for (int i = 0; i < (int)fd_list.size(); i++) {
+                            caas_send_all(fd_list[i], new_data.first, new_data.second);
+                        }
+                        segment -> reset();
                     }
-                    if (!segment -> all_connected()) {
-                        LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
-                    }
-                    std::pair<char *, size_t> new_data = segment -> make_segment();
-                    fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
-                    #pragma omp parallel for
-                    for (int i = 0; i < (int)fd_list.size(); i++) {
-                        caas_send_all(fd_list[i], new_data.first, new_data.second);
-                    }
-                    segment -> reset();
                 } else if (FLAGS_dynamic_invoke) {
-                    VLOG(1) << "current round " << segment -> round << " reduce_cnt " << segment -> reduce_cnt;
+                    VLOG(1) << "current round " << segment -> round 
+                        << " reduce_cnt " << segment -> reduce_cnt;
                     int prefix_len = (5 + segment -> vec_len) << 2;
                     if (raw_data.second != (size_t)prefix_len) {
                         int total_fds = *(int *)(raw_data.first + prefix_len);
@@ -465,7 +457,6 @@ void work(int thread_id, int epoll_fd) {
                             segment, raw_data, client_fd, total_fds, segment -> round, prefix_len
                         );
                         wait_thread.detach();
-                        segment -> wait_threads.push_back(std::move(wait_thread));
                     }
                 }
                 segment -> m.unlock();
@@ -533,6 +524,19 @@ void run() {
                     << " object " << object_id 
                     << " vec_len " << vec_len
                     << " assigned fd " << client_fd;
+                REQUEST_EXECUTION_STATUS status;
+                {
+                    std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                    if (request_status_table.count(request_id) == 0) {
+                        request_status_table[request_id] = REQUEST_EXECUTION_STATUS::INIT;
+                    }
+                    status = request_status_table[request_id];
+                }
+                if (status == REQUEST_EXECUTION_STATUS::EXECUTE) {
+                    VLOG(1) << "wrong connection, closing fd " << client_fd;
+                    close(client_fd);
+                    continue;
+                }
                 segment_base *segment;
                 {
                     std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
@@ -542,7 +546,9 @@ void run() {
                     }
                     segment = segment_table[roid];
                 }
+                segment -> m.lock();
                 add_fd_to_segment(client_fd, caas_flag_get_root(flag), segment);
+                segment -> m.unlock();
                 {
                     std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
                     fd_segment[client_fd] = segment;

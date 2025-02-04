@@ -61,6 +61,12 @@ enum class CAAS_SAVE_MODE : unsigned int {
     SAVE_S3 = 2,
 };
 
+enum class REQUEST_EXECUTION_STATUS : unsigned int {
+    INIT = 0,
+    EXECUTE = 1,
+    REINVOKE = 2,
+};
+
 typedef void * empty;
 
 #endif

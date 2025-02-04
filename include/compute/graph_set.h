@@ -187,6 +187,20 @@ public:
         }
     }
 
+    void update_config(exec_config *config) {
+        this -> config = config;
+        for (int i = 0; i < (int)graphs.size(); i++) {
+            graphs[i] -> config = config;
+        }
+        for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
+            it -> second -> config = config;
+        }
+        for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
+            it -> second -> config = config;
+        }
+        vote_object -> config = config;
+    }
+
     void begin(int round) {
         omp_set_num_threads(config -> cores);
         for (int i = 0; i < (int)graphs.size(); i++) {
