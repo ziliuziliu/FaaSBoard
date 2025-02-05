@@ -88,7 +88,7 @@ void s3_check_object_freshness(std::string bucket_name, std::string object_name)
     CHECK(diff_time <= 30) << "result file is generated long time ago";
 }
 
-void s3_get_object_to_file(std::string bucket_name, std::string object_name, std::string file_path) {
+std::pair<char *, uint32_t> s3_get_object(std::string bucket_name, std::string object_name) {
     Aws::S3::Model::GetObjectRequest request;
     request.SetBucket(bucket_name);
     request.SetKey(object_name);
@@ -100,24 +100,23 @@ void s3_get_object_to_file(std::string bucket_name, std::string object_name, std
                    << " exception " << error.GetExceptionName()
                    << " message " << error.GetMessage();        
     }
-    auto &data = outcome.GetResult().GetBody();
-    std::ofstream local_file(file_path, std::ios_base::binary);
-    local_file << data.rdbuf();
-    local_file.close();
+    auto &data = outcome.GetResultWithOwnership().GetBody();
+    auto len = outcome.GetResultWithOwnership().GetContentLength();
+    char *buffer = new char[len];
+    data.read(buffer, len);
+    return std::make_pair(buffer, len);
 }
 
-void s3_put_object_from_file(std::string bucket_name, std::string object_name, std::string file_path) {
+void s3_put_object(std::string bucket_name, std::string object_name, char *data, uint32_t len) {
     Aws::S3::Model::PutObjectRequest request;
     request.SetBucket(bucket_name);
     request.SetKey(object_name);
-    std::shared_ptr<Aws::IOStream> input_data = Aws::MakeShared<Aws::FStream>(
-        "SampleAllocationTag", file_path.c_str(), std::ios_base::in | std::ios_base::binary
+    auto body = Aws::MakeShared<Aws::StringStream>(
+        "InputStream", std::stringstream::in | std::stringstream::out | std::stringstream::binary
     );
-    if (!*input_data) {
-        LOG(FATAL) << "unable to read file " << file_path;
-    }
-    request.SetBody(input_data);
-    Aws::S3::Model::PutObjectOutcome outcome = s3_client -> PutObject(request);
+    body -> write(data, len);
+    request.SetBody(body);
+    auto outcome = s3_client -> PutObject(request);
     if (!outcome.IsSuccess()) {
         const auto& error = outcome.GetError();
         LOG(FATAL) << "error putting object " << object_name

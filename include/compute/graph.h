@@ -245,10 +245,6 @@ public:
         }
     }
 
-    std::string get_result_file_name(uint32_t start, uint32_t end) {
-        return "result_" + std::to_string(start) + "_" + std::to_string(end) + ".txt";
-    }
-
     void save_local() {
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
@@ -264,11 +260,9 @@ public:
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
-            save_local();
-            s3_put_object_from_file(
-                config -> s3_bucket, 
-                get_result_file_name(start, end),
-                config -> result_dir + "/" + get_result_file_name(start, end)
+            s3_put_object(
+                config -> s3_bucket, get_result_file_name(start, end),
+                (char *)in_segment -> vec, (end - start) << 2
             );
         }
     } 

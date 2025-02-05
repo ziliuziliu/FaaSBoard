@@ -28,11 +28,17 @@ int main(int argc, char *argv[]) {
     } else {
         cut = std::ceil(std::sqrt(total_block));
     }
-    VLOG(1) << "cut: " << cut;
-    result = g.checkerboard_partition(cut);
-    result.print();
-    double unbalance_ratio = result.get_unbalance_ratio();
-    VLOG(1) << "unbalance ratio: " << unbalance_ratio;
+    for (;;) {
+        VLOG(1) << "cut: " << cut;
+        result = g.checkerboard_partition(cut);
+        result.print();
+        VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();;
+        if ((int)result.blocks.size() >= total_block) {
+            break;
+        }
+        VLOG(1) << "not enough blocks, increase cut and try again";
+        cut++;
+    }
     VLOG(1) << "begin partitioning";
     graphsets = g.partition(result);
     for (auto graphset : graphsets) {

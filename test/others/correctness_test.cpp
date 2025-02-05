@@ -67,16 +67,26 @@ T *read_result_from_file(std::string result_dir, uint32_t total_v) {
         check_result_freshness(entry.path());
         read_result_util<T>(entry.path(), result);
     }
-    VLOG(1) << "result top 100: " << log_array<T>(result, 100).str();
+    VLOG(1) << "result from local file top 100: " << log_array<T>(result, 100).str();
     return result;
 }
 
-void read_result_from_s3() {
+template <class T>
+T *read_result_from_s3(uint32_t total_v) {
+    T *result = new T[total_v];
     std::vector<std::string> objects = s3_list_objects(FLAGS_s3_bucket);
     for (auto object : objects) {
         s3_check_object_freshness(FLAGS_s3_bucket, object);
-        s3_get_object_to_file(FLAGS_s3_bucket, object, FLAGS_result_dir + "/" + object);
+        std::pair<char *, uint32_t> raw_data = s3_get_object(FLAGS_s3_bucket, object);
+        T *data = (T *)raw_data.first;
+        uint32_t len = raw_data.second >> 2;
+        uint32_t start = get_start_from_result_file_name(object);
+        for (uint32_t i = 0; i < len; i++) {
+            result[start + i] = data[i];
+        }
     }
+    VLOG(1) << "result from s3 top 100: " << log_array<T>(result, 100).str();
+    return result;
 }
 
 template <class T>
@@ -87,8 +97,7 @@ T *read_result(CAAS_SAVE_MODE save_mode, std::string result_dir, uint32_t total_
         case CAAS_SAVE_MODE::SAVE_LOCAL:
             return read_result_from_file<T>(result_dir, total_v);
         case CAAS_SAVE_MODE::SAVE_S3:
-            read_result_from_s3();
-            return read_result_from_file<T>(result_dir, total_v);
+            return read_result_from_s3<T>(total_v);
         default:
             LOG(FATAL) << "save mode " << (int)save_mode << " not implemented";
     }

@@ -4,7 +4,7 @@ import datetime
 def get_billed_duration(index):
     global start_time, client
     resp = client.filter_log_events(
-        logGroupName='/aws/lambda/pr_d_{}'.format(index),
+        logGroupName='/aws/lambda/pr_e_{}'.format(index),
         startTime=int(start_time * 1000),
     )
     events = resp['events']
@@ -17,9 +17,9 @@ def get_billed_duration(index):
     return billed_duration
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 2, 4, 10, 55, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 2, 5, 16, 8, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     total_billed_duration = 0
-    for i in range(6):
+    for i in range(8):
         total_billed_duration += get_billed_duration(i)
     print('total billed duration: ', total_billed_duration)
