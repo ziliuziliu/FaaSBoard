@@ -15,7 +15,8 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     }
     json request = json::parse(req.payload);
     uint32_t request_id = request["request_id"];
-    cc(request_id, exec_config::build_by_json(request));
+    uint32_t partition_id = request["partition_id"];
+    cc(request_id, partition_id, exec_config::build_by_json(request));
     return lambda::invocation_response::success("cc success", "application/json");
 }
 

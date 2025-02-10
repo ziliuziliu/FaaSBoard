@@ -12,7 +12,7 @@
 
 graph_set<uint32_t, uint32_t> *graphs = nullptr;
 
-void sssp(uint32_t request_id, uint32_t root, exec_config *config) {
+void sssp(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
@@ -93,13 +93,13 @@ void sssp(uint32_t request_id, uint32_t root, exec_config *config) {
         }
     );
 
-    graphs->connect(request_id);
+    graphs->connect(request_id, partition_id);
     graphs->begin(0);
 
     if (!config->no_pipeline) {
         for (int round = 1;; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs->vote();
+            uint32_t activated = graphs->vote(round);
             if (round == 1) {
                 t.from_tick();
             }
@@ -113,7 +113,7 @@ void sssp(uint32_t request_id, uint32_t root, exec_config *config) {
     } else {
         for (int round = 1;; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs->vote();
+            uint32_t activated = graphs->vote(round);
             if (round == 1) {
                 t.from_tick();
             }

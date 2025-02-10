@@ -12,7 +12,7 @@
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
-void cc(uint32_t request_id, exec_config *config) {
+void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
@@ -86,13 +86,13 @@ void cc(uint32_t request_id, exec_config *config) {
         }
     );
 
-    graphs->connect(request_id);
+    graphs->connect(request_id, partition_id);
     graphs->begin(0);
 
     if (!config->no_pipeline) {
         for (int round = 1;; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs->vote();
+            uint32_t activated = graphs->vote(round);
             if (round == 1) {
                 t.from_tick();
             }
@@ -106,7 +106,7 @@ void cc(uint32_t request_id, exec_config *config) {
     } else {
         for (int round = 1;; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs->vote();
+            uint32_t activated = graphs->vote(round);
             if (round == 1) {
                 t.from_tick();
             }

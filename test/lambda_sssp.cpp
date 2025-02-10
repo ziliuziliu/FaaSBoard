@@ -15,8 +15,9 @@ static lambda::invocation_response my_handler(lambda::invocation_request const& 
     }
     json request = json::parse(req.payload);
     uint32_t request_id = request["request_id"];
+    uint32_t partition_id = request["partition_id"];
     uint32_t sssp_root = request["sssp_root"];
-    sssp(request_id, sssp_root, exec_config::build_by_json(request));
+    sssp(request_id, partition_id, sssp_root, exec_config::build_by_json(request));
     return lambda::invocation_response::success("sssp success", "application/json");
 }
 
