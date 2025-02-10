@@ -6,6 +6,7 @@
 #include "util/reduce.h"
 #include "util/log.h"
 #include "util/timer.h"
+#include "util/flags.h"
 
 #include <vector>
 #include <arpa/inet.h>
@@ -133,15 +134,17 @@ public:
     std::vector<int> related_graph_index;
     uint8_t colocated_member, finish;
 
+    exec_config *config;
+
     comm_object() {}
     
     comm_object(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_index, 
         bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
-        T base_vertex_value, std::string meta_server_addr, int meta_server_port
+        T base_vertex_value, exec_config *config
     ) : object_id(object_id), vec_len(vec_len), start_index(start_index), has_bitmap(has_bitmap), 
         root(root), instances(instances), members(members), data_type(data_type), comm_op(comm_op), reduce_op(reduce_op),
-        base_vertex_value(base_vertex_value) {
+        base_vertex_value(base_vertex_value), config(config) {
         flag = caas_build_flag(root, instances, members, data_type, comm_op, reduce_op);
         bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         data = new uint32_t[5 + bitmap_len + vec_len]();
@@ -152,17 +155,17 @@ public:
         bm = has_bitmap ? new bitmap(vec_len, data + 5) : nullptr;
         vec = (T *)(data + 5 + bitmap_len);
         meta_server.sin_family = AF_INET;
-        meta_server.sin_addr.s_addr = inet_addr(meta_server_addr.c_str());
-        meta_server.sin_port = htons(meta_server_port);
+        meta_server.sin_addr.s_addr = inet_addr(config -> meta_server_addr.c_str());
+        meta_server.sin_port = htons(CAAS_META_SERVER_PORT);
         colocated_member = finish = 0;
         related_graph_index = std::vector<int>();
     }
 
-    virtual void caas_connect(uint32_t request_id) {}
+    virtual void caas_connect(uint32_t request_id, uint32_t partition_id) = 0;
 
-    virtual void caas_disconnect() {}
+    virtual void caas_disconnect() = 0;
 
-    virtual void caas_do() {}
+    virtual uint32_t caas_do(bool piggyback_command = false, int round = -1, int total_fds = -1) = 0;
 
     void update_root() {
         root = true;
@@ -186,51 +189,47 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
-    std::atomic<bool> connected;
 
     proxy() {}
 
     proxy(
         uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
         bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
-        T base_vertex_value, std::string meta_server_addr, int meta_server_port
+        T base_vertex_value, exec_config *config
     ): comm_object<T>(
             object_id, vec_len, has_bitmap, start_vertex, 
             root, instances, members, data_type, comm_op, reduce_op,
-            base_vertex_value, meta_server_addr, meta_server_port
+            base_vertex_value, config
     ) {}
 
-    void caas_connect(uint32_t request_id) {
-        bool expected = false;
-        if (connected.compare_exchange_strong(expected, true)) {
-            this -> request_id = request_id;
-            this -> data[0] = request_id;
-            int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-            int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
-            CHECK(status_code == 0) << "can't connect to meta server";
-            recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
-            close(meta_server_socket);
-            proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-            status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
-            CHECK(status_code == 0) << "can't connect to proxy server";
-            uint32_t connect_data[6] = {request_id, this -> object_id, this -> vec_len, 
-                *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
-            send(proxy_server_socket, connect_data, sizeof(uint32_t) * 6, 0);
-        }
+    void caas_connect(uint32_t request_id, uint32_t partition_id) {
+        this -> request_id = request_id;
+        this -> data[0] = request_id;
+        int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+        int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
+        CHECK(status_code == 0) << "can't connect to meta server";
+        recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
+        close(meta_server_socket);
+        proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+        status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
+        CHECK(status_code == 0) << "can't connect to proxy server";
+        uint32_t connect_data[7] = {request_id, partition_id, this -> object_id, this -> vec_len, 
+            *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
+        send(proxy_server_socket, connect_data, sizeof(uint32_t) * 7, 0);
     }
 
     void caas_disconnect() {
-        bool expected = true;
-        if (connected.compare_exchange_strong(expected, false)) {
-            close(proxy_server_socket);
-        }
+        VLOG(1) << "disconnect object " << this -> object_id;
+        // uint32_t kill_msg = CAAS_KILL_MESSAGE;
+        // caas_send_all(proxy_server_socket, (char *)&kill_msg, sizeof(uint32_t));
+        close(proxy_server_socket);
     }
 
-    void caas_do() {
+    uint32_t caas_do(bool piggyback_command = false, int round = -1, int total_fds = -1) {
         if (this -> comm_op == CAAS_OP::MASKED_BROADCAST || this -> comm_op == CAAS_OP::MASKED_REDUCE) {
             if (this -> colocated_member == this -> members) {
                 VLOG(1) << "object " << this -> object_id << " return from " << (int)(this -> comm_op);
-                return;
+                return 0;
             }
         }
         if (this -> root) {
@@ -272,10 +271,17 @@ public:
                     break;
                 }
                 case CAAS_OP::ALLREDUCE: {
-                    std::pair<char *, size_t> send_segment = caas_make_segment(this);
-                    caas_send_all(proxy_server_socket, send_segment.first, send_segment.second);
+                    std::tuple<char *, size_t, bool> send_segment = caas_make_segment(this, piggyback_command, round, total_fds);
+                    caas_send_all(proxy_server_socket, std::get<0>(send_segment), std::get<1>(send_segment));
+                    if (std::get<2>(send_segment)) {
+                        delete [] std::get<0>(send_segment);
+                    }
                     std::pair<char *, size_t> recv_segment = caas_recv_all(proxy_server_socket);
+                    if (*(uint32_t *)recv_segment.first == CAAS_KILL_MESSAGE) {
+                        return CAAS_KILL_MESSAGE;
+                    }
                     caas_put_segment<T>(this, recv_segment.first, recv_segment.second);
+                    delete [] recv_segment.first;
                     break;
                 }
                 default:
@@ -283,16 +289,16 @@ public:
                     break;
             }
         }
+        return 0;
     }
 
 };
 
 template <class T>
 comm_object<T> *caas_make_comm_object(
-    CAAS_COMM_MODE comm_type, std::string meta_server_addr, int meta_server_port,
-    uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
+    CAAS_COMM_MODE comm_type, uint32_t object_id, uint32_t vec_len, bool has_bitmap, uint32_t start_vertex, 
     bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op,
-    T base_vertex_value
+    T base_vertex_value, exec_config *config
 ) {
     comm_object<T> *result = nullptr;
     switch (comm_type) {
@@ -300,7 +306,7 @@ comm_object<T> *caas_make_comm_object(
             result = new proxy<T>(
                 object_id, vec_len, has_bitmap, start_vertex, 
                 root, instances, members, data_type, comm_op, reduce_op,
-                base_vertex_value, meta_server_addr, meta_server_port
+                base_vertex_value, config
             );
             break;
         default:
@@ -454,8 +460,18 @@ void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len
 }
 
 template <class T>
-std::pair<char *, size_t> caas_make_segment(comm_object<T> *object) {
-    return {(char *)object -> data, (5 + object -> vec_len) << 2};
+std::tuple<char *, size_t, bool> caas_make_segment(comm_object<T> *object, bool piggyback_command, int round, int total_fds) {
+    int data_len = (5 + object -> vec_len) << 2;
+    if (piggyback_command) {
+        std::string command = object -> config -> build_reinvoke_command(round);
+        char *msg = new char[data_len + 4 + command.length()];
+        memcpy(msg, (char *)object -> data, data_len);
+        *(int *)(msg + data_len) = total_fds;
+        memcpy(msg + data_len + 4, command.c_str(), command.length());
+        return std::make_tuple(msg, data_len + 4 + command.length(), true);
+    } else {
+        return std::make_tuple((char *)object -> data, data_len, false);
+    }
 }
 
 template <class T>

@@ -1,7 +1,7 @@
 #include "preprocess/raw_graph.h"
 #include "util/log.h"
 #include "util/flags.h"
-#include "util/s3.h"
+#include "util/sdk.h"
 
 #include <cstring>
 #include <queue>
@@ -124,30 +124,39 @@ T *read_result_from_file(std::string result_dir, uint32_t total_v) {
         check_result_freshness(entry.path());
         read_result_util<T>(entry.path(), result);
     }
-    VLOG(1) << "result top 100: " << log_array<T>(result, 100).str();
+    VLOG(1) << "result from local file top 100: " << log_array<T>(result, 100).str();
     return result;
 }
 
-void read_result_from_s3() {
+template <class T>
+T *read_result_from_s3(uint32_t total_v) {
+    T *result = new T[total_v];
     std::vector<std::string> objects = s3_list_objects(FLAGS_s3_bucket);
     for (auto object : objects) {
         s3_check_object_freshness(FLAGS_s3_bucket, object);
-        s3_get_object_to_file(FLAGS_s3_bucket, object, FLAGS_result_dir + "/" + object);
+        std::pair<char *, uint32_t> raw_data = s3_get_object(FLAGS_s3_bucket, object);
+        T *data = (T *)raw_data.first;
+        uint32_t len = raw_data.second >> 2;
+        uint32_t start = get_start_from_result_file_name(object);
+        for (uint32_t i = 0; i < len; i++) {
+            result[start + i] = data[i];
+        }
     }
+    VLOG(1) << "result from s3 top 100: " << log_array<T>(result, 100).str();
+    return result;
 }
 
 template <class T>
-T *read_result(exec_config *config, std::string result_dir, uint32_t total_v) {
-    switch (config -> save_mode) {
+T *read_result(CAAS_SAVE_MODE save_mode, std::string result_dir, uint32_t total_v) {
+    switch (save_mode) {
         case CAAS_SAVE_MODE::NO_SAVE:
             break;
         case CAAS_SAVE_MODE::SAVE_LOCAL:
             return read_result_from_file<T>(result_dir, total_v);
         case CAAS_SAVE_MODE::SAVE_S3:
-            read_result_from_s3();
-            return read_result_from_file<T>(result_dir, total_v);
+            return read_result_from_s3<T>(total_v);
         default:
-            LOG(FATAL) << "save mode " << FLAGS_save_mode << " not implemented";
+            LOG(FATAL) << "save mode " << (int)save_mode << " not implemented";
     }
     return nullptr;
 }
@@ -167,12 +176,12 @@ void check_error(uint32_t total_v, T *vec1, T *vec2, double error_rate) {
 }
 
 template <typename T>
-void process_sssp(exec_config *config) {
+void process_sssp(CAAS_SAVE_MODE save_mode) {
     raw_graph<T> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
     g.read_txt(FLAGS_graph_file, FLAGS_undirected);
 
     T* dis1 = sssp<T>(&g, FLAGS_vertices, FLAGS_sssp_root);
-    T* dis2 = read_result<T>(config, FLAGS_result_dir, FLAGS_vertices);
+    T* dis2 = read_result<T>(save_mode, FLAGS_result_dir, FLAGS_vertices);
     check_equal<T>(FLAGS_vertices, dis1, dis2);
 
     delete[] dis1;
@@ -184,32 +193,33 @@ int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_logtostderr = 1;
-    exec_config *config = new exec_config(
-        FLAGS_graph_dir, FLAGS_result_dir, FLAGS_meta_server, FLAGS_s3_bucket,
-        FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode
-    );
-    if (config -> enable_s3()) {
-        s3_init();
+    exec_config *config = exec_config::build_by_flags();
+    VLOG(1) << "aws sdk init";
+    if (config -> enable_sdk()) {
+        sdk_init();
+    }
+    if (config -> enable_s3_sdk()) {
+        s3_sdk_init();
     }
     if (FLAGS_application == "bfs") {
-        uint32_t *dis2 = read_result<uint32_t>(config, FLAGS_result_dir, FLAGS_vertices);
+        uint32_t *dis2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
         g.read_txt(FLAGS_graph_file, false);
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         check_equal<uint32_t>(FLAGS_vertices, dis1, dis2);
     } else if (FLAGS_application == "pr") {
-        float *pr2 = read_result<float>(config, FLAGS_result_dir, FLAGS_vertices);
+        float *pr2 = read_result<float>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
         g.read_txt(FLAGS_graph_file, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
         check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
     } else if (FLAGS_application == "sssp"){
         if (FLAGS_ewT == "uint32_t") {
-            process_sssp<uint32_t>(config);
+            process_sssp<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode);
         } else if (FLAGS_ewT == "int") {
-            process_sssp<int>(config);
+            process_sssp<int>((CAAS_SAVE_MODE)FLAGS_save_mode);
         } else if (FLAGS_ewT == "float") {
-            process_sssp<float>(config);
+            process_sssp<float>((CAAS_SAVE_MODE)FLAGS_save_mode);
         } else {
             VLOG(1) << "Unsupported edge weight type: " << FLAGS_ewT;
         }
@@ -218,7 +228,7 @@ int main(int argc, char *argv[]) {
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * 2);
         g.read_txt(FLAGS_graph_file, true);
         uint32_t *cc1 = cc(&g, FLAGS_vertices); 
-        uint32_t *cc2 = read_result<uint32_t>(config, FLAGS_result_dir, FLAGS_vertices);
+        uint32_t *cc2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         check_equal<uint32_t>(FLAGS_vertices, cc1, cc2);
     }
     VLOG(1) << "Freshness Check (<=30min) Passed";   

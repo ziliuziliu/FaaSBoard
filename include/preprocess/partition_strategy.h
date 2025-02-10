@@ -13,9 +13,9 @@
 #include <functional>
 
 template <class ewT>
-class PartitionStrategy {
+class partition_strategy {
 public:
-    PartitionStrategy(raw_graph<ewT>& graph, int total_block) : graph(graph), total_block(total_block) {}
+    partition_strategy(raw_graph<ewT>& graph, int total_block) : graph(graph), total_block(total_block) {}
 
     void execute_partition(const std::string& strategy) {
         static const std::unordered_map<std::string, std::function<void()>> strategy_map = {
@@ -94,10 +94,23 @@ private:
     }
 
     void handle_checkerboard() {
-        int cut = sqrt((double)total_block) + 1;
-        result = graph.checkerboard_partition(cut);
-        result.print();
-        VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
+        int cut;
+        if (int(std::sqrt(total_block)) * int(std::sqrt(total_block)) == total_block) {
+            cut = std::sqrt(total_block);
+        } else {
+            cut = std::ceil(std::sqrt(total_block));
+        }
+        for (;;) {
+            VLOG(1) << "cut: " << cut;
+            result = graph.checkerboard_partition(cut);
+            result.print();
+            VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();;
+            if ((int)result.count_non_empty() >= total_block) {
+                break;
+            }
+            VLOG(1) << "not enough blocks, increase cut and try again";
+            cut++;
+        }
         VLOG(1) << "begin partitioning";
         graphsets = graph.partition(result);
         for (auto graphset : graphsets) {

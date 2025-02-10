@@ -13,12 +13,14 @@
 
 graph_set<float, empty> *graphs = nullptr;
 
-void pagerank(uint32_t request_id, int iterations, exec_config *config) {
+void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<float, empty>(CAAS_REDUCE_OP::ADD, 0.0, config);
+    } else {
+        graphs -> update_config(config);
     }
     if (request_id == 0xffffffff) {
         return; // set 0xffffffff as the request id for keeping graph not evicted
@@ -75,25 +77,37 @@ void pagerank(uint32_t request_id, int iterations, exec_config *config) {
             }
         }
     );
-    graphs -> connect(request_id);
+    graphs -> connect(request_id, partition_id);
     graphs -> begin(0);
+    bool kill = false;
     if (!config -> no_pipeline) {
+        timer t2;
         for (int round = 1; round <= iterations; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            graphs -> vote();
+            t2.tick(info_prefix + "vote");
+            uint32_t activated = graphs -> vote(round);
+            t2.from_tick();
             if (round == 1) {
                 t.from_tick();
             }
-            t.tick(info_prefix);
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
+                break;
+            }
+            t2.tick(info_prefix + "run");
             graphs -> pipeline_run(round);
-            t.from_tick();
+            t2.from_tick();
         }
     } else {
         for (int round = 1; round <= iterations; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            graphs -> vote(); 
+            uint32_t activated = graphs -> vote(round); 
             if (round == 1) {
                 t.from_tick();
+            }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
+                break;
             }
             graphs -> in(round);
             graphs -> exec_each(round);
@@ -103,9 +117,11 @@ void pagerank(uint32_t request_id, int iterations, exec_config *config) {
     }
     graphs -> disconnect();
     t.from_start("overall");
-    t.tick("save_result");
-    graphs -> save_result(config -> save_mode, config -> graph_dir);
-    t.from_tick();
+    if (!kill) {
+        t.tick("save_result");
+        graphs -> save_result(config -> save_mode, config -> graph_dir);
+        t.from_tick();
+    }
 }
 
 #endif

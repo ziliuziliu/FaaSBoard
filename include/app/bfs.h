@@ -12,12 +12,14 @@
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
-void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
+void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config *config) {
     timer t;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
         graphs = new graph_set<uint32_t, empty>(CAAS_REDUCE_OP::UP, 0xffffffff, config);
+    } else {
+        graphs -> update_config(config);
     }
     if (request_id == 0xffffffff) {
         return; // set 0xffffffff as the request id for keeping graph not evicted
@@ -77,16 +79,21 @@ void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
             }
         }
     );
-    graphs -> connect(request_id);
+    graphs -> connect(request_id, partition_id);
     graphs -> begin(0);
+    bool kill = false;
     if (!config -> no_pipeline) {
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs -> vote();
+            uint32_t activated = graphs -> vote(round);
             if (round == 1) {
                 t.from_tick();
             }
             if (activated == 0) {
+                break;
+            }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
                 break;
             }
             t.tick(info_prefix);
@@ -96,11 +103,15 @@ void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
     } else {
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            uint32_t activated = graphs -> vote(); 
+            uint32_t activated = graphs -> vote(round); 
             if (round == 1) {
                 t.from_tick();
             }
             if (activated == 0) {
+                break;
+            }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
                 break;
             }
             graphs -> in(round);
@@ -111,9 +122,11 @@ void bfs(uint32_t request_id, uint32_t root, exec_config *config) {
     }
     graphs -> disconnect();
     t.from_start("overall");
-    t.tick("save_result");
-    graphs -> save_result(config -> save_mode, config -> graph_dir);
-    t.from_tick();
+    if (!kill) {
+        t.tick("save_result");
+        graphs -> save_result(config -> save_mode, config -> graph_dir);
+        t.from_tick();
+    }
 }
 
 #endif

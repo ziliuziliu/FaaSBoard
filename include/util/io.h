@@ -232,4 +232,12 @@ void save_result_util(std::string result_path, uint32_t start, uint32_t end, T *
     result_file.close();
 }
 
+std::string get_result_file_name(uint32_t start, uint32_t end) {
+    return "result_" + std::to_string(start) + "_" + std::to_string(end) + ".txt";
+}
+
+uint32_t get_start_from_result_file_name(std::string result_file_name) {
+    return std::stoi(result_file_name.substr(7, result_file_name.find_last_of('_') - 7));
+}
+
 #endif

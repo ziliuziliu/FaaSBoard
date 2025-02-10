@@ -46,6 +46,16 @@ struct partition_result {
         return max_workload / avg_workload;
     }
 
+    int count_non_empty() {
+        int cnt = 0;
+        for (auto block : blocks) {
+            if (block.edges > 0) {
+                cnt++;
+            }
+        }
+        return cnt;
+    }
+
     void print() {
         VLOG(1) << "Total Blocks: " << blocks.size();
         for (auto block: blocks) {

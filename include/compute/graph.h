@@ -7,7 +7,7 @@
 #include "util/types.h"
 #include "util/json.h"
 #include "util/flags.h"
-#include "util/s3.h"
+#include "util/sdk.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -110,18 +110,6 @@ public:
         this -> vote_object = vote_object;
     }
 
-    void connect(uint32_t request_id) {
-        in_segment -> caas_connect(request_id);
-        out_segment -> caas_connect(request_id);
-        vote_object -> caas_connect(request_id);
-    }
-
-    void disconnect() {
-        in_segment -> caas_disconnect();
-        out_segment -> caas_disconnect();
-        vote_object -> caas_disconnect();
-    }
-
     void begin(int round, int index) {
         uint32_t activated = 0;
         if (check_diagonal()) {
@@ -132,7 +120,7 @@ public:
                 activated += begin_func(this, v);
             }
         }
-        vote_object -> vec[0] = activated;
+        __sync_fetch_and_add(vote_object -> vec, activated);
     }
 
     void exec_sparse(int round, uint32_t begin, uint32_t end) {
@@ -238,7 +226,7 @@ public:
         uint32_t activated = 0;
         activated += out_segment -> bm -> get_size();
         out_segment -> print(round);
-        vote_object -> vec[0] = activated;
+        vote_object -> vec[0] += activated;
     }
 
     void exec_diagonal(int round) {
@@ -257,15 +245,6 @@ public:
         }
     }
 
-    uint32_t vote() {
-        vote_object -> caas_do();
-        return vote_object -> vec[0];
-    }
-
-    std::string get_result_file_name(uint32_t start, uint32_t end) {
-        return "result_" + std::to_string(start) + "_" + std::to_string(end) + ".txt";
-    }
-
     void save_local() {
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
@@ -281,11 +260,9 @@ public:
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
-            save_local();
-            s3_put_object_from_file(
-                config -> s3_bucket, 
-                get_result_file_name(start, end),
-                config -> result_dir + "/" + get_result_file_name(start, end)
+            s3_put_object(
+                config -> s3_bucket, get_result_file_name(start, end),
+                (char *)in_segment -> vec, (end - start) << 2
             );
         }
     } 

@@ -7,7 +7,7 @@
 #include "util/flags.h"
 
 #include <cstring>
-#include <string>
+#include <cmath>
 
 template <typename T>
 int main_impl(int argc, char* argv[]) {
@@ -18,13 +18,13 @@ int main_impl(int argc, char* argv[]) {
     g.read_txt(FLAGS_graph_file, FLAGS_undirected);
     // g.print();
 
-    std::string partition_strategy = FLAGS_strategy;
-    VLOG(1) << "partition_strategy: " << partition_strategy;
+    std::string strategy = FLAGS_strategy;
+    VLOG(1) << "partition_strategy: " << strategy;
     int total_block = FLAGS_partitions;
-    PartitionStrategy<T> partition_handler(g, total_block);
+    partition_strategy<T> partition_handler(g, total_block);
 
     try {
-        partition_handler.execute_partition(partition_strategy);
+        partition_handler.execute_partition(strategy);
     } catch (const std::invalid_argument& e) {
         VLOG(1) << "Invalid partitioning strategy: " << e.what() << std::endl;
         return -1;
