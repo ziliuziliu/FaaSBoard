@@ -29,7 +29,7 @@ CAAS_TYPE caas_get_data_type() {
 uint32_t caas_build_flag(bool root, uint8_t instances, uint8_t members, CAAS_TYPE data_type, CAAS_OP comm_op, CAAS_REDUCE_OP reduce_op) {
     uint32_t flag = 0;
     flag |= (root << 31);
-    flag |= ((instances & 0xf) << 16);
+    flag |= ((instances & 0xff) << 16);
     flag |= ((members & 0xf) << 12);
     flag |= (((uint8_t)data_type & 0xf) << 8);
     flag |= (((uint8_t)comm_op & 0xf) << 4);
@@ -42,7 +42,7 @@ bool caas_flag_get_root(uint32_t flag) {
 }
 
 uint8_t caas_flag_get_instances(uint32_t flag) {
-    return (flag >> 16) & 0xf;
+    return (flag >> 16) & 0xff;
 }
 
 uint8_t caas_flag_get_members(uint32_t flag) {
@@ -113,7 +113,7 @@ public:
     uint32_t object_id;
     uint32_t bitmap_len;
     uint32_t vec_len;
-    // | root, 1 bit | segment_type, 2 bit | 9 bit | instances 4 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
+    // | root, 1 bit | segment_type, 2 bit | 5 bit | instances 8 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
     uint32_t flag;
 
     uint32_t *data;

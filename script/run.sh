@@ -116,9 +116,9 @@ elif [[ "$MODE" == "aws" ]]; then
   "no_pipeline": false,
   "sparse_only": true,
   "dense_only": false,
-  "save_mode": 2,
+  "save_mode": 0,
   "s3_bucket": "ziliuziliu",
-  "request_id": 123,
+  "request_id": $REQUEST_ID,
   "bfs_root": 0
 }
 EOF

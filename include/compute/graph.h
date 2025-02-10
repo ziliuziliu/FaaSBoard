@@ -229,7 +229,7 @@ public:
         vote_object -> vec[0] += activated;
     }
 
-    void exec_diagonal(int round, int index) {
+    void exec_diagonal(int round) {
         if (check_diagonal()) {
             out_segment -> print(round);
             in_segment -> bm -> clear();

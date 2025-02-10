@@ -22,6 +22,9 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
     } else {
         graphs -> update_config(config);
     }
+    if (request_id == 0xffffffff) {
+        return; // set 0xffffffff as the request id for keeping graph not evicted
+    }
     graphs -> set_begin_func(
         [](graph<float, empty> *g, uint32_t v){
             comm_object<float> *in_seg = g -> in_segment;

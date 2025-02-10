@@ -60,6 +60,63 @@ float *pagerank(raw_graph<empty> *g, uint32_t total_v, int iterations) {
     return cur_pr;
 }
 
+template <typename T>
+T* sssp(raw_graph<T>* g, uint32_t total_v, uint32_t sssp_root) {
+    T* dis = new T[total_v];
+    for (uint32_t i = 0; i < total_v; i++) {
+        dis[i] = std::numeric_limits<T>::max();
+    }
+    dis[sssp_root] = static_cast<T>(0); 
+
+    std::queue<uint32_t> q;
+    q.push(sssp_root);
+
+    while (!q.empty()) {
+        uint32_t u = q.front();
+        q.pop();
+
+        for (uint32_t i = g -> out_offset[u]; i < g -> out_offset[u + 1]; i++) {
+            uint32_t v = g -> out_dest[i];  
+            T weight = g->out_weight[i];
+
+            if (dis[v] > dis[u] + weight) {
+                dis[v] = dis[u] + weight; 
+                q.push(v); 
+            }
+        }
+    }
+
+    VLOG(1) << "correct top 100: " << log_array<T>(dis, 100).str();
+    return dis;
+}
+
+uint32_t *cc(raw_graph<empty> *g, uint32_t total_v) { // only undirected graph
+    uint32_t *cc_id = new uint32_t[total_v];
+    for (uint32_t i = 0; i < total_v; i++) {
+        cc_id[i] = i;
+    }
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (uint32_t u = 0; u < total_v; u++) {
+            for (uint32_t i = g->out_offset[u]; i < g->out_offset[u + 1]; i++) {
+                uint32_t v = g->out_dest[i];
+                if (u < v) {
+                    if (cc_id[v] > cc_id[u]) {
+                        cc_id[v] = cc_id[u];
+                        changed = true;
+                    } else if (cc_id[u] > cc_id[v]) {
+                        cc_id[u] = cc_id[v];
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    VLOG(1) << "correct top 100: " << log_array<uint32_t>(cc_id, 100).str();
+    return cc_id;
+}
+
 template <class T>
 T *read_result_from_file(std::string result_dir, uint32_t total_v) {
     T *result = new T[total_v];
@@ -118,6 +175,20 @@ void check_error(uint32_t total_v, T *vec1, T *vec2, double error_rate) {
     }
 }
 
+template <typename T>
+void process_sssp(CAAS_SAVE_MODE save_mode) {
+    raw_graph<T> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
+    g.read_txt(FLAGS_graph_file, FLAGS_undirected);
+
+    T* dis1 = sssp<T>(&g, FLAGS_vertices, FLAGS_sssp_root);
+    T* dis2 = read_result<T>(save_mode, FLAGS_result_dir, FLAGS_vertices);
+    check_equal<T>(FLAGS_vertices, dis1, dis2);
+
+    delete[] dis1;
+    delete[] dis2;
+}
+
+
 int main(int argc, char *argv[]) {
     google::InitGoogleLogging(argv[0]);
     gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -142,6 +213,23 @@ int main(int argc, char *argv[]) {
         g.read_txt(FLAGS_graph_file, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
         check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
+    } else if (FLAGS_application == "sssp"){
+        if (FLAGS_ewT == "uint32_t") {
+            process_sssp<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode);
+        } else if (FLAGS_ewT == "int") {
+            process_sssp<int>((CAAS_SAVE_MODE)FLAGS_save_mode);
+        } else if (FLAGS_ewT == "float") {
+            process_sssp<float>((CAAS_SAVE_MODE)FLAGS_save_mode);
+        } else {
+            VLOG(1) << "Unsupported edge weight type: " << FLAGS_ewT;
+        }
+    } else if (FLAGS_application == "cc") {
+        // only undirected graph
+        raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * 2);
+        g.read_txt(FLAGS_graph_file, true);
+        uint32_t *cc1 = cc(&g, FLAGS_vertices); 
+        uint32_t *cc2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
+        check_equal<uint32_t>(FLAGS_vertices, cc1, cc2);
     }
     VLOG(1) << "Freshness Check (<=30min) Passed";   
     VLOG(1) << "Correctness Check Passed";

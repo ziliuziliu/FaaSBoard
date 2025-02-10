@@ -21,6 +21,9 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
     } else {
         graphs -> update_config(config);
     }
+    if (request_id == 0xffffffff) {
+        return; // set 0xffffffff as the request id for keeping graph not evicted
+    }
     graphs -> set_begin_func(
         [root](graph<uint32_t, empty> *g, uint32_t v){
             comm_object<uint32_t> *in_seg = g -> in_segment;
