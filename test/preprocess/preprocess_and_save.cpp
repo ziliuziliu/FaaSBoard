@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
         result = g.checkerboard_partition(cut);
         result.print();
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();;
-        if ((int)result.blocks.size() >= total_block) {
+        if ((int)result.count_non_empty() >= total_block) {
             break;
         }
         VLOG(1) << "not enough blocks, increase cut and try again";

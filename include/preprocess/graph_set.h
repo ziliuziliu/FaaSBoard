@@ -213,6 +213,15 @@ public:
     }
 
     static void save(std::vector<graph_set<ewT> *> graphsets, double total_resource) {
+        for (auto graphset : graphsets) {
+            std::vector<graph<ewT> *> non_empty_graphs;
+            for (auto graph : graphset -> graphs) {
+                if (graph -> edges > 0) {
+                    non_empty_graphs.push_back(graph);
+                }
+            }
+            graphset -> graphs = non_empty_graphs;
+        }
         uint32_t total_graph = 0;
         for (auto graphset : graphsets) {
             total_graph += graphset -> graphs.size();
@@ -236,17 +245,19 @@ public:
             fs::remove_all(root_dir);
         }
         fs::create_directory(root_dir);
-        int *instances = new int[cuts.size() * 2 - 1]();
-        instances[0] = (int)graphsets.size();
+        int *instances = new int[cuts.size() * 2 - 1](), *members = new int[cuts.size() * 2 - 1]();
+        instances[0] = members[0] = (int)graphsets.size();
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
             for (int j = 0; j < (int)graphsets.size(); j++) {
                 bool contain_object_in = false, contain_object_out = false;
                 for (auto graph : graphsets[j] -> graphs) {
                     if (cuts[i] >= graph -> from_source && cuts[i] < graph -> to_source) {
                         contain_object_in = true;
+                        members[i + 1]++;
                     }
                     if (cuts[i] >= graph -> from_dest && cuts[i] < graph -> to_dest) {
                         contain_object_out = true;
+                        members[i + cuts.size()]++;
                     }
                 }
                 if (contain_object_in) {
@@ -282,7 +293,7 @@ public:
                         recv_meta["start"] = cuts[j];
                         recv_meta["end"]= cuts[j + 1];
                         recv_meta["instances"] = instances[(int)recv_meta["object_id"]];
-                        recv_meta["members"] = cuts.size() - 1;
+                        recv_meta["members"] = members[(int)recv_meta["object_id"]];
                         if (cuts[j] >= graph -> from_dest && cuts[j] < graph -> to_dest) {
                             recv_meta["root"] = true;
                         } else {
@@ -306,7 +317,7 @@ public:
                         send_meta["start"] = cuts[j];
                         send_meta["end"] = cuts[j + 1];
                         send_meta["instances"] = instances[(int)send_meta["object_id"]];
-                        send_meta["members"] = cuts.size() - 1;
+                        send_meta["members"] = members[(int)send_meta["object_id"]];
                         if (cuts[j] >= graph -> from_source && cuts[j] < graph -> to_source) {
                             send_meta["root"] = true;
                         } else {
@@ -324,7 +335,7 @@ public:
                 }
                 comm_meta["vote"]["object_id"] = 0;
                 comm_meta["vote"]["instances"] = instances[0];
-                comm_meta["vote"]["members"] = total_graph;
+                comm_meta["vote"]["members"] = members[0];
                 graph_meta["comm"] = comm_meta; 
                 graphs_meta["graphs"].push_back(graph_meta);
             }

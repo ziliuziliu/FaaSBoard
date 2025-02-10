@@ -208,9 +208,7 @@ public:
             #pragma omp critical
             {
                 for (int i = 0; i < cut; i++) {
-                    if (block_edges[i] > 0) {
-                        result.add(cuts[t], cuts[t + 1], cuts[i], cuts[i + 1], block_edges[i]);
-                    }
+                    result.add(cuts[t], cuts[t + 1], cuts[i], cuts[i + 1], block_edges[i]);
                 }
             }
         }

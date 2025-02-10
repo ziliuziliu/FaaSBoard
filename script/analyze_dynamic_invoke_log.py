@@ -17,7 +17,7 @@ def get_billed_duration(index):
     return billed_duration
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 2, 5, 16, 8, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 2, 9, 16, 35, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     total_billed_duration = 0
     for i in range(8):
