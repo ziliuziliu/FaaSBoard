@@ -4,6 +4,7 @@
 #include "util/log.h"
 #include "raw_graph.h"
 #include "graph_set.h"
+#include "graph.h"
 
 #include <vector>
 #include <cassert>
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <unordered_map>
 #include <functional>
+#include <algorithm>
 
 template <class ewT>
 class partition_strategy {
@@ -68,6 +70,24 @@ private:
         graphsets = graph.partition(processed_result);
         std::vector<graph_set<ewT>*> new_graphsets = graph_set<ewT>::pack_graph(graphsets, result);
         handle_save(new_graphsets);
+    }
+
+    // Actually, when this function is called, each graphset contains only one graph at this point.
+    std::vector<graph_set<ewT>*> Normalize_graphsets() {
+        auto compare_graphsets = [](graph_set<ewT>* a, graph_set<ewT>* b) {
+            uint32_t flag1_a = a->graphs[0]->from_source;
+            uint32_t flag2_a = a->graphs[0]->from_dest;
+            uint32_t flag1_b = b->graphs[0]->from_source;
+            uint32_t flag2_b = b->graphs[0]->from_dest;
+    
+            if (flag1_a != flag1_b) {
+                return flag1_a < flag1_b;
+            }
+            return flag2_a < flag2_b;
+        };
+    
+        std::sort(graphsets.begin(), graphsets.end(), compare_graphsets);
+        return graphsets;
     }
 
     void handle_save(const std::vector<graph_set<ewT>*>& new_graphsets = {}) {
@@ -145,6 +165,10 @@ private:
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
         graphsets = graph.partition(result);
+        Normalize_graphsets();
+        for (auto graphset : graphsets) {
+            graphset->print(false);
+        }
         VLOG(1) << "cycle placing";
         graphsets = graph_set<ewT>::cycle(graphsets, total_block);
         handle_save();
@@ -156,6 +180,10 @@ private:
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
         graphsets = graph.partition(result);
+        Normalize_graphsets();
+        for (auto graphset : graphsets) {
+            graphset->print(false);
+        }
         VLOG(1) << "stagger placing";
         graphsets = graph_set<ewT>::stagger(graphsets, total_block);
         handle_save();
