@@ -14,6 +14,7 @@
 #include <vector>
 #include <set>
 #include <cmath>
+#include <utility>
 #include <cassert>
 #include <omp.h>
 #include <errno.h>
@@ -108,19 +109,22 @@ public:
         return result;
     }
 
-    // require total_block to be square number
     partition_result mondriaan_partition_row_column(int total_block) {
         timer t;
         t.tick("partition time");
-        int cut = sqrt(total_block);
-        partition_result row_result = row_partition(cut);
+        std::pair<int,int> rank;
+        rank = factorizeInt(total_block);
+        int row_rank = rank.first, col_rank = rank.second;
+        VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
+        partition_result row_result = row_partition(row_rank);
+        row_result.print();
         partition_result final_result;
         #pragma omp parallel for
         for (int t = 0; t < (int)row_result.blocks.size(); t++) {
             partition_block block = row_result.blocks[t];
             uint32_t accum_edges = 0, previous_from_dest = 0;
             for (uint32_t i = 0; i < meta.total_v; i++) {
-                if (i % 64 == 0 && accum_edges * cut >= block.edges) {
+                if (i % 64 == 0 && accum_edges * col_rank >= block.edges) {
                     #pragma omp critical
                     {
                         final_result.add(block.from_source, block.to_source, previous_from_dest, i, accum_edges);
@@ -146,19 +150,21 @@ public:
         return final_result;
     }
 
-    // require total_block to be square number
     partition_result mondriaan_partition_column_row(int total_block) {
         timer t;
         t.tick("partition time");
-        int cut = sqrt(total_block);
-        partition_result column_result = column_partition(cut);
+        std::pair<int,int> rank;
+        rank = factorizeInt(total_block);
+        int row_rank = rank.first, col_rank = rank.second;
+        VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
+        partition_result column_result = row_partition(row_rank);
         partition_result final_result;
         #pragma omp parallel for
         for (int t = 0; t < (int)column_result.blocks.size(); t++) {
             partition_block block = column_result.blocks[t];
             uint32_t accum_edges = 0, previous_from_source = 0;
             for (uint32_t i = 0; i < meta.total_v; i++) {
-                if (i % 64 == 0 && accum_edges * cut >= block.edges) {
+                if (i % 64 == 0 && accum_edges * row_rank >= block.edges) {
                     #pragma omp critical
                     {
                         final_result.add(previous_from_source, i, block.from_dest, block.to_dest, accum_edges);

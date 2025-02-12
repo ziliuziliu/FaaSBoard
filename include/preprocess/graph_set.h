@@ -4,11 +4,13 @@
 #include "graph.h"
 #include "util/json.h"
 #include "util/flags.h"
+#include "util/mathtools.h"
 
 #include <set>
 #include <algorithm>
 #include <stdexcept>
 #include <cmath>
+#include <utility>
 #include <filesystem>
 #include <fstream>
 
@@ -73,46 +75,50 @@ public:
     }
 
     static std::vector<graph_set<ewT> *> cycle(std::vector<graph_set<ewT> *> graphsets, int total_block) {
-        int step = sqrt(total_block);
+        std::pair<int,int> rank;
+        rank = factorizeInt(total_block);
+        int row_rank = rank.first, col_rank = rank.second;
+        VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
         std::vector<graph_set<ewT> *> cycle_graphsets(total_block, nullptr);
-        for (int i = 0; i < step; i++)
-            for (int j = 0; j < step; j++) {
-                #pragma omp parallel for
-                for (int t = 0; t < total_block; t++) {
-                    int px = i * step + t / step, py = j * step + t % step;
-                    graph_set<ewT> *add = graphsets[px * total_block + py];
-                    graph_set<ewT> *old = cycle_graphsets[t];
-                    if (old == nullptr) {
-                        cycle_graphsets[t] = add;
-                    }
-                    else {
-                        cycle_graphsets[t] = new graph_set<ewT>(old, add);
-                        delete old;
-                    }
+
+        for (int rg = 0; rg < total_block; rg++) {
+            for (int cg = 0; cg < total_block; cg++) {
+                int target = (rg % row_rank) * col_rank + (cg % col_rank);
+                graph_set<ewT> *add = graphsets[rg * total_block + cg];
+                graph_set<ewT> *old = cycle_graphsets[target];
+                if (old == nullptr) {
+                    cycle_graphsets[target] = add;
+                }
+                else {
+                    cycle_graphsets[target] = new graph_set<ewT>(old, add);
+                    delete old;
                 }
             }
+        }
         return cycle_graphsets;
     }
 
     static std::vector<graph_set<ewT> *> stagger(std::vector<graph_set<ewT> *> graphsets, int total_block) {
-        int step = sqrt(total_block);
+        std::pair<int,int> rank;
+        rank = factorizeInt(total_block);
+        int row_rank = rank.first, col_rank = rank.second;
+        VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
         std::vector<graph_set<ewT> *> stagger_graphsets(total_block, nullptr);
-        for (int i = 0; i < step; i++)
-            for (int j = 0; j < step; j++) {
-                #pragma omp parallel for
-                for (int t = 0; t < total_block; t++) {
-                    int px = i * step + t / step, py = j * step + t % step;
-                    int target = (t + i * step) % total_block;
-                    graph_set<ewT> *add = graphsets[px * total_block + py];
-                    graph_set<ewT> *old = stagger_graphsets[target];
-                    if (old == nullptr)
-                        stagger_graphsets[target] = add;
-                    else {
-                        stagger_graphsets[target] = new graph_set<ewT>(old, add);
-                        delete old;
-                    }
+
+        for (int rg = 0; rg < total_block; rg++) {
+            for (int cg = 0; cg < total_block; cg++) {
+                int target = (( rg + rg / row_rank) % row_rank) * col_rank + (cg % col_rank);
+                graph_set<ewT> *add = graphsets[rg * total_block + cg];
+                graph_set<ewT> *old = stagger_graphsets[target];
+                if (old == nullptr) {
+                    stagger_graphsets[target] = add;
+                }
+                else {
+                    stagger_graphsets[target] = new graph_set<ewT>(old, add);
+                    delete old;
                 }
             }
+        }
         return stagger_graphsets;
     }
 
