@@ -3,6 +3,7 @@
 
 #include "caas.h"
 #include "util/atomic.h"
+#include "util/elasticache.h"
 #include "util/log.h"
 #include "util/flags.h"
 #include "util/bitmap.h"
@@ -495,6 +496,11 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
+    
+    // Connect to ElastiCache and update the global IP address list
+    std::vector<std::string> ip_addresses = fargate_get_task_ips(FARGATE_CLUSTER, FARGATE_SERVICE);
+    setListCache(REDIS_HOST, REDIS_PORT, "GlobalIPList", ip_addresses);
+
     fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
     for (int i = 0; i < (int)FLAGS_cores; i++) {
         fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);

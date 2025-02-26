@@ -2,6 +2,7 @@
 #define _CAAS_H
 
 #include "util/bitmap.h"
+#include "util/elasticache.h"
 #include "util/types.h"
 #include "util/reduce.h"
 #include "util/log.h"
@@ -189,6 +190,7 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
+    ElastiCache redis;
 
     proxy() {}
 
@@ -200,18 +202,53 @@ public:
             object_id, vec_len, has_bitmap, start_vertex, 
             root, instances, members, data_type, comm_op, reduce_op,
             base_vertex_value, config
-    ) {}
+    ) {
+        redis.connect(); // Connect to ElastiCache
+    }
+
+    ~proxy() {
+        redis.close(); // Close ElastiCache connection
+    }
 
     void caas_connect(uint32_t request_id, uint32_t partition_id) {
         this -> request_id = request_id;
         this -> data[0] = request_id;
-        int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
-        CHECK(status_code == 0) << "can't connect to meta server";
-        recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
-        close(meta_server_socket);
+        // int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+        // int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
+        // CHECK(status_code == 0) << "can't connect to meta server";
+        // recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
+        // close(meta_server_socket);
+
+        // Check if proxy server address is in redis
+        std::string proxy_server_host = redis.get(std::to_string(this -> request_id));
+        if (proxy_server_host == "") {
+            // Get proxy server address list from GlobalIPList in redis
+            std::vector<std::string> proxy_server_ips = redis.getList("GlobalIPList");
+
+            // Get a random number to select a proxy server
+            srand(time(0));
+            uint32_t idx = rand() % proxy_server_ips.size();
+
+            // Set proxy server address in redis atomly
+            bool success = redis.setnx(std::to_string(this -> request_id), (proxy_server_ips[idx].c_str()));
+            // Get proxy server address from redis
+            proxy_server_host = redis.get(std::to_string(this -> request_id));
+            // If setnx failed, get proxy server address from redis
+            if (!success) {
+                assert(proxy_server_host != "");
+            } else {
+                assert(proxy_server_host == proxy_server_ips[idx]);
+            }
+
+            VLOG(1) << "request " << this -> request_id << ": proxy server " << proxy_server_host;
+        }
+        // Convert string to sockaddr_in
+        proxy_server.sin_family = AF_INET;
+        proxy_server.sin_addr.s_addr = inet_addr(proxy_server_host.c_str());
+        proxy_server.sin_port = htons(20001);
+
         proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
-        status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
+        int status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
         CHECK(status_code == 0) << "can't connect to proxy server";
         uint32_t connect_data[7] = {request_id, partition_id, this -> object_id, this -> vec_len, 
             *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};
