@@ -498,8 +498,13 @@ void run() {
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
     
     // Connect to ElastiCache and update the global IP address list
+    std::cout << "Fargate SDK initializing" << std::endl;
+    fargate_sdk_init();
+    std::cout << "Fargate SDK initialized" << std::endl;
     std::vector<std::string> ip_addresses = fargate_get_task_ips(FARGATE_CLUSTER, FARGATE_SERVICE);
+    std::cout << "Fargate task IPs: " << ip_addresses.size() << std::endl;
     setListCache(REDIS_HOST, REDIS_PORT, "GlobalIPList", ip_addresses);
+    std::cout << "Global IP list updated" << std::endl;
 
     fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
     for (int i = 0; i < (int)FLAGS_cores; i++) {

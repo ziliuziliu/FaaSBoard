@@ -48,8 +48,11 @@ void lambda_sdk_init() {
 }
 
 void fargate_sdk_init() {
+    std::cout << "Client config initializing" << std::endl;
     Aws::Client::ClientConfiguration client_config;
+    std::cout << " ECS client initializing" << std::endl;
     ecs_client = new Aws::ECS::ECSClient(client_config);
+    std::cout << " ECS client initialized" << std::endl;
 }
 
 std::vector<std::string> s3_list_objects(std::string bucket_name) {

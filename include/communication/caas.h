@@ -190,7 +190,7 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
-    ElastiCache redis;
+    ElastiCache redis{REDIS_HOST, REDIS_PORT};
 
     proxy() {}
 
@@ -223,7 +223,9 @@ public:
         std::string proxy_server_host = redis.get(std::to_string(this -> request_id));
         if (proxy_server_host == "") {
             // Get proxy server address list from GlobalIPList in redis
+            std::cout << "request " << this -> request_id << ": get proxy server address list from GlobalIPList" << std::endl;
             std::vector<std::string> proxy_server_ips = redis.getList("GlobalIPList");
+            std::cout << "request " << this -> request_id << ": proxy server list size " << proxy_server_ips.size() << std::endl;
 
             // Get a random number to select a proxy server
             srand(time(0));
