@@ -8,6 +8,12 @@
 
 #define CAAS_KILL_MESSAGE 0xdeadbeef
 
+#define REDIS_HOST "faasboard-meta-hcdnu5.serverless.apse1.cache.amazonaws.com"
+#define REDIS_PORT 6379
+
+#define FARGATE_CLUSTER "faasboard"
+#define FARGATE_SERVICE "proxy_server"
+
 enum class RUN_TYPE : unsigned int {
     LOCAL = 0,
     LAMBDA = 1,
