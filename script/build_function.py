@@ -13,6 +13,7 @@ def build_function(args, index, dockerfile, aws_config):
     os.system('rm -rf {}'.format(TEMP_DIR))
     os.system('mkdir -p {}'.format(TEMP_DIR))
     os.system('unzip ../build/lambda_{}.zip -d {}'.format(args.application, TEMP_DIR))
+    os.system('cp cacert.pem {}'.format(TEMP_DIR))
     print('====== Building Image ======')
     image_uri = '{}.dkr.ecr.{}.amazonaws.com/lambda-{}'.format(aws_config['account_id'], aws_config['region'], args.function_name)
     os.system('docker rmi $(docker images -q {})'.format(image_uri))
@@ -42,8 +43,8 @@ def build_function(args, index, dockerfile, aws_config):
         aws_config['region']
     ))
     time.sleep(10)
-    print('====== Cleaning Cache ======')
-    os.system('docker system prune -f')
+    # print('====== Cleaning Cache ======')
+    # os.system('docker system prune -f')
 
 def main():
     with open('aws-config.json', 'r') as f:

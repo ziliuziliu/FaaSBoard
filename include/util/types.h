@@ -8,6 +8,9 @@
 
 #define CAAS_KILL_MESSAGE 0xdeadbeef
 
+#define FARGATE_CLUSTER "faasboard"
+#define FARGATE_SERVICE "proxy_server"
+
 enum class RUN_TYPE : unsigned int {
     LOCAL = 0,
     LAMBDA = 1,
