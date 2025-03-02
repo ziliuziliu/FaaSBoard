@@ -2,12 +2,12 @@
 #define _CAAS_H
 
 #include "util/bitmap.h"
-#include "util/elasticache.h"
 #include "util/types.h"
 #include "util/reduce.h"
 #include "util/log.h"
 #include "util/timer.h"
 #include "util/flags.h"
+#include "util/sdk.h"
 
 #include <vector>
 #include <arpa/inet.h>
@@ -130,7 +130,7 @@ public:
     CAAS_REDUCE_OP reduce_op;
 
     T base_vertex_value;
-    sockaddr_in meta_server;
+    // sockaddr_in meta_server;
 
     std::vector<int> related_graph_index;
     uint8_t colocated_member, finish;
@@ -155,9 +155,9 @@ public:
         data[4] = flag;
         bm = has_bitmap ? new bitmap(vec_len, data + 5) : nullptr;
         vec = (T *)(data + 5 + bitmap_len);
-        meta_server.sin_family = AF_INET;
-        meta_server.sin_addr.s_addr = inet_addr(config -> meta_server_addr.c_str());
-        meta_server.sin_port = htons(CAAS_META_SERVER_PORT);
+        // meta_server.sin_family = AF_INET;
+        // meta_server.sin_addr.s_addr = inet_addr(config -> meta_server_addr.c_str());
+        // meta_server.sin_port = htons(CAAS_META_SERVER_PORT);
         colocated_member = finish = 0;
         related_graph_index = std::vector<int>();
     }
@@ -190,7 +190,7 @@ public:
 
     sockaddr_in proxy_server;
     int proxy_server_socket;
-    ElastiCache redis{REDIS_HOST, REDIS_PORT};
+    elasticache_sdk *e_sdk;
 
     proxy() {}
 
@@ -203,48 +203,47 @@ public:
             root, instances, members, data_type, comm_op, reduce_op,
             base_vertex_value, config
     ) {
-        redis.connect(); // Connect to ElastiCache
+        e_sdk = new elasticache_sdk(config -> elasticache_host, 6379);
     }
 
     ~proxy() {
-        redis.close(); // Close ElastiCache connection
+        e_sdk -> close(); // Close ElastiCache connection
     }
 
     void caas_connect(uint32_t request_id, uint32_t partition_id) {
         this -> request_id = request_id;
         this -> data[0] = request_id;
+
         // int meta_server_socket = socket(AF_INET, SOCK_STREAM, 0);
         // int status_code = connect(meta_server_socket, (sockaddr *)&this -> meta_server, sizeof(sockaddr_in));
         // CHECK(status_code == 0) << "can't connect to meta server";
         // recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
         // close(meta_server_socket);
 
-        // Check if proxy server address is in redis
-        std::string proxy_server_host = redis.get(std::to_string(this -> request_id));
-        if (proxy_server_host == "") {
-            // Get proxy server address list from GlobalIPList in redis
-            std::cout << "request " << this -> request_id << ": get proxy server address list from GlobalIPList" << std::endl;
-            std::vector<std::string> proxy_server_ips = redis.getList("GlobalIPList");
-            std::cout << "request " << this -> request_id << ": proxy server list size " << proxy_server_ips.size() << std::endl;
-
-            // Get a random number to select a proxy server
-            srand(time(0));
-            uint32_t idx = rand() % proxy_server_ips.size();
-
-            // Set proxy server address in redis atomly
-            bool success = redis.setnx(std::to_string(this -> request_id), (proxy_server_ips[idx].c_str()));
-            // Get proxy server address from redis
-            proxy_server_host = redis.get(std::to_string(this -> request_id));
-            // If setnx failed, get proxy server address from redis
-            if (!success) {
-                assert(proxy_server_host != "");
-            } else {
-                assert(proxy_server_host == proxy_server_ips[idx]);
+        std::string proxy_server_host;
+        if (this -> config -> elastic_proxy) {
+            VLOG(1) << "before get proxy ip from elasticache";
+            proxy_server_host = e_sdk -> get(std::to_string(this -> request_id));
+            if (proxy_server_host == "") {
+                std::cout << "request " << this -> request_id << ": get proxy server address list from GlobalIPList" << std::endl;
+                std::vector<std::string> proxy_server_ips = e_sdk -> getList("GlobalIPList");
+                std::cout << "request " << this -> request_id << ": proxy server list size " << proxy_server_ips.size() << std::endl;
+                srand(time(0));
+                uint32_t idx = rand() % proxy_server_ips.size();
+                bool success = e_sdk -> setnx(std::to_string(this -> request_id), (proxy_server_ips[idx].c_str()));
+                proxy_server_host = e_sdk -> get(std::to_string(this -> request_id));
+                if (!success) {
+                    assert(proxy_server_host != "");
+                } else {
+                    assert(proxy_server_host == proxy_server_ips[idx]);
+                }
+                VLOG(1) << "request " << this -> request_id << ": proxy server " << proxy_server_host;
             }
-
-            VLOG(1) << "request " << this -> request_id << ": proxy server " << proxy_server_host;
+            VLOG(1) << "after get proxy ip from elasticache";
+        } else {
+            proxy_server_host = this -> config -> proxy_ip;
         }
-        // Convert string to sockaddr_in
+
         proxy_server.sin_family = AF_INET;
         proxy_server.sin_addr.s_addr = inet_addr(proxy_server_host.c_str());
         proxy_server.sin_port = htons(20001);

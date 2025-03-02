@@ -256,11 +256,11 @@ public:
         }
     }
 
-    void save_s3() {
+    void save_s3(s3_sdk *s_sdk) {
         if (check_diagonal()) {
             uint32_t start = in_segment -> start_index;
             uint32_t end = in_segment -> start_index + in_segment -> vec_len;
-            s3_put_object(
+            s_sdk -> put_object(
                 config -> s3_bucket, get_result_file_name(start, end),
                 (char *)in_segment -> vec, (end - start) << 2
             );

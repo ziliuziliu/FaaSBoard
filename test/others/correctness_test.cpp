@@ -9,6 +9,8 @@
 #include <chrono>
 #include <omp.h>
 
+s3_sdk *s_sdk;
+
 uint32_t *bfs(raw_graph<empty> *g, uint32_t total_v, uint32_t bfs_root) {
     uint32_t *dis = new uint32_t[total_v];
     for (uint32_t i = 0; i < total_v; i++) {
@@ -131,10 +133,10 @@ T *read_result_from_file(std::string result_dir, uint32_t total_v) {
 template <class T>
 T *read_result_from_s3(uint32_t total_v) {
     T *result = new T[total_v];
-    std::vector<std::string> objects = s3_list_objects(FLAGS_s3_bucket);
+    std::vector<std::string> objects = s_sdk -> list_objects(FLAGS_s3_bucket);
     for (auto object : objects) {
-        s3_check_object_freshness(FLAGS_s3_bucket, object);
-        std::pair<char *, uint32_t> raw_data = s3_get_object(FLAGS_s3_bucket, object);
+        s_sdk -> check_object_freshness(FLAGS_s3_bucket, object);
+        std::pair<char *, uint32_t> raw_data = s_sdk -> get_object(FLAGS_s3_bucket, object);
         T *data = (T *)raw_data.first;
         uint32_t len = raw_data.second >> 2;
         uint32_t start = get_start_from_result_file_name(object);
@@ -199,7 +201,7 @@ int main(int argc, char *argv[]) {
         sdk_init();
     }
     if (config -> enable_s3_sdk()) {
-        s3_sdk_init();
+        s_sdk = new s3_sdk();
     }
     if (FLAGS_application == "bfs") {
         uint32_t *dis2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);

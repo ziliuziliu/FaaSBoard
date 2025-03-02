@@ -38,6 +38,9 @@ DEFINE_string(strategy, "checkerboard", "partitioning strategy: row, column, mon
 DEFINE_bool(dynamic_invoke, false, "enable dynamic invoke");
 DEFINE_uint32(partition_id, 0xffffffff, "partition id (0-based)");
 DEFINE_int32(kill_wait_ms, 100000, "wait time to kill process");
+DEFINE_bool(elastic_proxy, false, "enable elastic proxy");
+DEFINE_string(elasticache_host, "", "elasticache host");
+DEFINE_string(proxy_ip, "", "proxy server ip");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);
@@ -52,31 +55,41 @@ std::vector<std::string> parse_proxy_server_list() {
 struct exec_config {
 
     uint32_t request_id, partition_id;
-    std::string graph_dir, result_dir, meta_server_addr, s3_bucket;
+    std::string graph_dir, result_dir, s3_bucket;
     bool no_pipeline, sparse_only, dense_only, dynamic_invoke;
     int cores;
     CAAS_SAVE_MODE save_mode;
-    RUN_TYPE run_type;
     json request;
     std::string reinvoke_command;
     int pr_iterations;
+    std::string elasticache_host, proxy_ip;
+    bool elastic_proxy;
+    int kill_wait_ms;
+    RUN_TYPE run_type;
 
     exec_config() {}
     
     exec_config(
         uint32_t request_id, uint32_t partition_id, 
-        std::string graph_dir, std::string result_dir, std::string meta_server_addr, std::string s3_bucket, 
+        std::string graph_dir, std::string result_dir, std::string s3_bucket, 
         bool no_pipeline, bool sparse_only, bool dense_only, bool dynamic_invoke, int cores, CAAS_SAVE_MODE save_mode,
+        std::string elasticache_host, std::string proxy_ip, 
+        bool elastic_proxy, int kill_wait_ms,
         RUN_TYPE run_type
     ):request_id(request_id), partition_id(partition_id),
-      graph_dir(graph_dir), result_dir(result_dir), meta_server_addr(meta_server_addr), s3_bucket(s3_bucket), 
+      graph_dir(graph_dir), result_dir(result_dir), s3_bucket(s3_bucket), 
       no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), dynamic_invoke(dynamic_invoke), 
-      cores(cores), save_mode(save_mode), run_type(run_type) {
+      cores(cores), save_mode(save_mode), elasticache_host(elasticache_host), proxy_ip(proxy_ip), 
+      elastic_proxy(elastic_proxy), kill_wait_ms(kill_wait_ms), 
+      run_type(run_type) {
         if (no_pipeline) {
             VLOG(1) << "pipeline disabled";
         }
         if (dynamic_invoke) {
             VLOG(1) << "dynamic invoke enabled";
+        }
+        if (elastic_proxy) {
+            VLOG(1) << "elastic proxy enabled";
         }
         check();
     }
@@ -84,20 +97,28 @@ struct exec_config {
     static exec_config *build_by_flags(){
         exec_config *config = new exec_config(
             FLAGS_request_id, FLAGS_partition_id,
-            FLAGS_graph_dir, FLAGS_result_dir, FLAGS_meta_server, FLAGS_s3_bucket, 
+            FLAGS_graph_dir, FLAGS_result_dir, FLAGS_s3_bucket, 
             FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_dynamic_invoke, 
-            FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode, RUN_TYPE::LOCAL
+            FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_elasticache_host, FLAGS_proxy_ip, 
+            FLAGS_elastic_proxy, FLAGS_kill_wait_ms,
+            RUN_TYPE::LOCAL
         );
         config -> pr_iterations = FLAGS_pr_iterations;
         return config;
     }
 
     static exec_config *build_by_json(json request){
+        std::string s3_bucket = request.value("s3_bucket", "");
+        std::string elasticache_host = request.value("elasticache_host", "");
+        std::string proxy_ip = request.value("proxy_ip", "");
+        int kill_wait_ms = request.value("kill_wait_ms", 100000);
         exec_config *config = new exec_config(
             request["request_id"], request["partition_id"],
-            request["graph_dir"], request["result_dir"], request["meta_server"], request["s3_bucket"], 
+            request["graph_dir"], request["result_dir"], s3_bucket, 
             request["no_pipeline"], request["sparse_only"], request["dense_only"], request["dynamic_invoke"], 
-            request["cores"], (CAAS_SAVE_MODE)request["save_mode"], RUN_TYPE::LAMBDA
+            request["cores"], (CAAS_SAVE_MODE)request["save_mode"], elasticache_host, proxy_ip, 
+            request["elastic_proxy"], kill_wait_ms,
+            RUN_TYPE::LAMBDA
         );
         config -> request = request;
         if (config -> get_app() == "pr") {
@@ -110,10 +131,16 @@ struct exec_config {
         if (enable_s3_sdk() && s3_bucket == "") {
             LOG(FATAL) << "need to provide s3 bucket name";
         }
+        if (enable_elasticache_sdk() && elasticache_host == "") {
+            LOG(FATAL) << "need to provide elasticache host";
+        }
+        if (!elastic_proxy && proxy_ip == "") {
+            LOG(FATAL) << "need to provide proxy ip";
+        }
     }
 
     bool enable_sdk() {
-        return enable_s3_sdk() || enable_lambda_sdk();
+        return enable_s3_sdk() || enable_lambda_sdk() || enable_fargate_sdk();
     }
 
     bool enable_s3_sdk() {
@@ -121,7 +148,15 @@ struct exec_config {
     }
 
     bool enable_lambda_sdk() {
-        return FLAGS_dynamic_invoke;
+        return dynamic_invoke;
+    }
+
+    bool enable_fargate_sdk() {
+        return elastic_proxy;
+    }
+
+    bool enable_elasticache_sdk() {
+        return elastic_proxy;
     }
     
     std::string get_app() {
@@ -149,8 +184,6 @@ struct exec_config {
             reinvoke_command.append(graph_dir);
             reinvoke_command.append(" --result-dir ");
             reinvoke_command.append(result_dir);
-            reinvoke_command.append(" --meta-server ");
-            reinvoke_command.append(meta_server_addr);
             reinvoke_command.append(" --cores ");
             reinvoke_command.append(std::to_string(cores));
             if (FLAGS_no_pipeline) {
@@ -161,6 +194,14 @@ struct exec_config {
             }
             if (FLAGS_dense_only) {
                 reinvoke_command.append(" --dense-only ");
+            }
+            if (FLAGS_elastic_proxy) {
+                reinvoke_command.append(" --elastic-proxy ");
+                reinvoke_command.append(" --elasticache-host ");
+                reinvoke_command.append(elasticache_host);
+            } else {
+                reinvoke_command.append(" --proxy-ip ");
+                reinvoke_command.append(proxy_ip);
             }
             reinvoke_command.append(" --save-mode ");
             reinvoke_command.append(std::to_string((int)save_mode));

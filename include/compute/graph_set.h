@@ -26,6 +26,7 @@ public:
     vwT base_vertex_value;
     exec_config *config;
     bool stateful;
+    s3_sdk *s_sdk;
 
     graph_set(CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
@@ -38,7 +39,7 @@ public:
             sdk_init();
         }
         if (config -> enable_s3_sdk()) {
-            s3_sdk_init();
+            s_sdk = new s3_sdk();
         }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
@@ -343,7 +344,7 @@ public:
             case CAAS_SAVE_MODE::SAVE_S3:
                 for (int i = 0; i < (int)graphs.size(); i++) {
                     VLOG(1) << "graph " << i << " save result";
-                    graphs[i] -> save_s3();
+                    graphs[i] -> save_s3(s_sdk);
                 }
                 break;
             default:

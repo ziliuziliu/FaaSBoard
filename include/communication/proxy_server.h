@@ -3,7 +3,6 @@
 
 #include "caas.h"
 #include "util/atomic.h"
-#include "util/elasticache.h"
 #include "util/log.h"
 #include "util/flags.h"
 #include "util/bitmap.h"
@@ -227,6 +226,10 @@ std::condition_variable request_reinvoke_cv;
 std::mutex request_reinvoke_m;
 std::unordered_map<uint32_t, REQUEST_EXECUTION_STATUS> request_status_table;
 std::mutex request_status_table_m;
+exec_config *config;
+fargate_sdk *f_sdk;
+lambda_sdk *l_sdk;
+elasticache_sdk *e_sdk;
 
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
     if (root) {
@@ -364,7 +367,7 @@ void work(int thread_id, int epoll_fd) {
                 if (segment -> reduce_cnt == (int)segment -> instances) {
                     segment -> round++;
                     VLOG(1) << "now we have enough instances, reduce_cnt " << segment -> reduce_cnt;
-                    if (FLAGS_dynamic_invoke && !segment -> reinvoke_commands.empty()) {
+                    if (config -> dynamic_invoke && !segment -> reinvoke_commands.empty()) {
                         segment -> m.unlock();
                         VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
                         cas<int>(&thread_stuck[thread_id], 0, 1);
@@ -400,7 +403,7 @@ void work(int thread_id, int epoll_fd) {
                                     std::string function_name;
                                     iss >> function_name;
                                     std::string payload = command.substr(5 + function_name.length());
-                                    lambda_invoke(function_name, payload);
+                                    l_sdk -> invoke(function_name, payload);
                                 } else {
                                     LOG(FATAL) << "reinvoke command not implemented";
                                 }
@@ -423,7 +426,7 @@ void work(int thread_id, int epoll_fd) {
                         }
                         segment -> reset();
                     }
-                } else if (FLAGS_dynamic_invoke) {
+                } else if (config -> dynamic_invoke) {
                     VLOG(1) << "current round " << segment -> round 
                         << " reduce_cnt " << segment -> reduce_cnt;
                     int prefix_len = (5 + segment -> vec_len) << 2;
@@ -431,7 +434,7 @@ void work(int thread_id, int epoll_fd) {
                         int total_fds = *(int *)(raw_data.first + prefix_len);
                         std::thread wait_thread = std::thread(
                             [](segment_base *segment, std::pair<char *, size_t> raw_data, int client_fd, int total_fds, int round, int prefix_len){
-                                std::this_thread::sleep_for(std::chrono::milliseconds(FLAGS_kill_wait_ms));
+                                std::this_thread::sleep_for(std::chrono::milliseconds(config -> kill_wait_ms));
                                 segment -> m.lock();
                                 if (round == segment -> round) {
                                     std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
@@ -470,18 +473,25 @@ void work(int thread_id, int epoll_fd) {
 }
 
 void run() {
-    exec_config *config = exec_config::build_by_flags();
+    config = exec_config::build_by_flags();
     VLOG(1) << "aws sdk init";
     if (config -> enable_sdk()) {
         sdk_init();
     }
     if (config -> enable_lambda_sdk()) {
-        lambda_sdk_init();
-    }
-    VLOG(1) << "proxy running on " << FLAGS_cores << " cores";
-    if (FLAGS_dynamic_invoke) {
+        l_sdk = new lambda_sdk();
         VLOG(1) << "dynamic invoke enabled";
     }
+    if (config -> enable_fargate_sdk()) {
+        f_sdk = new fargate_sdk();
+        VLOG(1) << "fargate proxy enabled";
+    }
+    if (config -> enable_elasticache_sdk()) {
+        e_sdk = new elasticache_sdk(config -> elasticache_host, 6379);
+        VLOG(1) << "elasticache enabled";
+    }
+    VLOG(1) << "proxy running on " << config -> cores << " cores";
+
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_address;
     server_address.sin_family = AF_INET;
@@ -490,24 +500,15 @@ void run() {
     int status_code = bind(server_fd, (sockaddr *)&server_address, sizeof(sockaddr_in));
     CHECK(status_code == 0) << "cannot bind to 20001";
     listen(server_fd, MAX_CONNECTION);
-    VLOG(1) << "proxy server started";
     int epoll_fd = epoll_create1(0);
     epoll_event event, events[MAX_CONNECTION];
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
-    
-    // Connect to ElastiCache and update the global IP address list
-    std::cout << "Fargate SDK initializing" << std::endl;
-    fargate_sdk_init();
-    std::cout << "Fargate SDK initialized" << std::endl;
-    std::vector<std::string> ip_addresses = fargate_get_task_ips(FARGATE_CLUSTER, FARGATE_SERVICE);
-    std::cout << "Fargate task IPs: " << ip_addresses.size() << std::endl;
-    setListCache(REDIS_HOST, REDIS_PORT, "GlobalIPList", ip_addresses);
-    std::cout << "Global IP list updated" << std::endl;
+    VLOG(1) << "proxy server started";
 
-    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[FLAGS_cores];
-    for (int i = 0; i < (int)FLAGS_cores; i++) {
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores];
+    for (int i = 0; i < (int)config -> cores; i++) {
         fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
         std::thread worker(work, i, epoll_fd);
         worker.detach();
@@ -574,7 +575,7 @@ void run() {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
-                for (int i = 0; i < (int)FLAGS_cores; i++) {
+                for (int i = 0; i < (int)config -> cores; i++) {
                     if (thread_stuck[i]) {
                         continue;
                     }
