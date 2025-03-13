@@ -15,7 +15,7 @@ using json = nlohmann::json;
 DEFINE_string(graph_root_dir, ".", "root directory for graph dataset in csr binary");
 DEFINE_string(graph_file, "", "original graph dataset file");
 DEFINE_uint32(vertices, 0, "#vertices");
-DEFINE_uint32(edges, 0, "#edges");
+DEFINE_uint64(edges, 0, "#edges");
 DEFINE_uint32(request_id, 0, "request id");
 DEFINE_uint32(bfs_root, 0xffffffff, "root vertex for bfs");
 DEFINE_uint32(sssp_root, 0xffffffff, "root vertex for sssp");
@@ -62,6 +62,7 @@ struct exec_config {
     json request;
     std::string reinvoke_command;
     int pr_iterations;
+    uint32_t bfs_root, sssp_root;
     std::string elasticache_host, proxy_ip;
     bool elastic_proxy;
     int kill_wait_ms;
@@ -91,7 +92,6 @@ struct exec_config {
         if (elastic_proxy) {
             VLOG(1) << "elastic proxy enabled";
         }
-        check();
     }
 
     static exec_config *build_by_flags(){
@@ -104,6 +104,8 @@ struct exec_config {
             RUN_TYPE::LOCAL
         );
         config -> pr_iterations = FLAGS_pr_iterations;
+        config -> bfs_root = FLAGS_bfs_root;
+        config -> sssp_root = FLAGS_sssp_root;
         return config;
     }
 
@@ -121,22 +123,14 @@ struct exec_config {
             RUN_TYPE::LAMBDA
         );
         config -> request = request;
-        if (config -> get_app() == "pr") {
+        if (config -> get_app() == "bfs"){
+            config -> bfs_root = request["bfs_root"];
+        } else if (config -> get_app() == "pr") {
             config -> pr_iterations = request["pr_iterations"];
+        } else if (config -> get_app() == "sssp"){
+            config -> sssp_root = request["sssp_root"];
         }
         return config;
-    }
-
-    void check() {
-        if (enable_s3_sdk() && s3_bucket == "") {
-            LOG(FATAL) << "need to provide s3 bucket name";
-        }
-        if (enable_elasticache_sdk() && elasticache_host == "") {
-            LOG(FATAL) << "need to provide elasticache host";
-        }
-        if (!elastic_proxy && proxy_ip == "") {
-            LOG(FATAL) << "need to provide proxy ip";
-        }
     }
 
     bool enable_sdk() {
@@ -159,13 +153,16 @@ struct exec_config {
         return elastic_proxy;
     }
     
+    // only support bfs,pr,sssp,cc
     std::string get_app() {
         if (FLAGS_bfs_root != 0xffffffff || request.contains("bfs_root")) {
             return "bfs";
         } else if (FLAGS_pr_iterations != -1 || request.contains("pr_iterations")) {
             return "pr";
+        } else if (FLAGS_sssp_root != 0xffffffff || request.contains("sssp_root")){
+            return "sssp";
         } else {
-            LOG(FATAL) << "app not implemented";
+            return "cc";
         }
     }
 
@@ -220,6 +217,10 @@ struct exec_config {
                 reinvoke_command.append(" --pr-iterations ");
                 reinvoke_command.append(std::to_string(pr_iterations - round + 1));
             }
+            else if (app == "sssp") {
+                reinvoke_command.append(" --sssp-root ");
+                reinvoke_command.append(std::to_string(FLAGS_sssp_root));
+            }
             reinvoke_command.append(" --v 1 > ");
             reinvoke_command.append(std::to_string(partition_id));
             reinvoke_command.append(std::to_string(partition_id));
@@ -231,6 +232,10 @@ struct exec_config {
             request["dynamic_invoke"] = true;
             if (app == "pr") {
                 request["pr_iterations"] = pr_iterations - round + 1;
+            } else if (app == "bfs"){
+                request["bfs_root"] = bfs_root;
+            } else if (app == "sssp"){
+                request["sssp_root"] = sssp_root;
             }
             reinvoke_command.append(request.dump());
         } else {

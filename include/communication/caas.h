@@ -178,7 +178,7 @@ public:
         VLOG(2) << "round " << round << " object " << object_id << " "
             << "[ " << start_index << ", " << start_index + vec_len - 1 << " ]: " 
             << "bitmap " << bm -> print().str() << " "
-            << "value " << log_array<T>(vec, vec_len).str();
+            << "value " << log_array<T>(vec, uint64_t(vec_len)).str();
     }
 
 };
@@ -250,6 +250,7 @@ public:
 
         proxy_server_socket = socket(AF_INET, SOCK_STREAM, 0);
         int status_code = connect(proxy_server_socket, (sockaddr *)&proxy_server, sizeof(sockaddr_in));
+        VLOG(1) << "Proxy server address: " << inet_ntoa(proxy_server.sin_addr);
         CHECK(status_code == 0) << "can't connect to proxy server";
         uint32_t connect_data[7] = {request_id, partition_id, this -> object_id, this -> vec_len, 
             *(uint32_t *)&this -> base_vertex_value, this -> flag, this -> has_bitmap};

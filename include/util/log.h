@@ -4,10 +4,10 @@
 #include <glog/logging.h>
 
 template <class T>
-std::ostringstream log_array(T *array, int len) {
+std::ostringstream log_array(T *array, uint64_t len) {
     std::ostringstream oss;
     oss << "[ ";
-    for (int i = 0; i < len; ++i) {
+    for (uint64_t i = 0; i < len; ++i) {
         oss << array[i];
         if (i < len - 1) {
             oss << ", ";

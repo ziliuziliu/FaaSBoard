@@ -33,13 +33,31 @@ void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t
         edge_buffer[i] = mapping[edge_buffer[i]];
 }
 
+// double get_available_memory_gb() {
+//     std::ifstream meminfo("/proc/meminfo");
+//     std::string line;
+//     double mem_available = 0.0;
+
+//     while (std::getline(meminfo, line)) {
+//         if (line.find("MemAvailable:") != std::string::npos) {
+//             std::istringstream iss(line);
+//             std::string key;
+//             iss >> key >> mem_available;  // 提取可用内存值
+//             mem_available /= 1024.0 * 1024.0;  // 转换为 GB
+//             break;
+//         }
+//     }
+
+//     return mem_available;
+// }
+
 // w = (u + v) % 100
 template <class T>
 void read_txt_util(
     std::string path, bool undirected,
-    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
-    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
-    bool weighted, uint32_t total_v, uint32_t total_e
+    uint64_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    uint64_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
+    bool weighted, uint32_t total_v, uint64_t total_e
 ) {
     VLOG(1) << "start reading txt";
     FILE *txt_file = fopen(path.c_str(), "r");
@@ -48,7 +66,7 @@ void read_txt_util(
     uint64_t edge_buffer_count = 0;
     uint32_t mx = 0, x, y;
     uint32_t *mapping = new uint32_t[total_v * 3];
-    uint32_t *edge_buffer = new uint32_t[(uint64_t)total_e * 2];
+    uint32_t *edge_buffer = new uint32_t[total_e * 2];
     while (getline(&line, &line_size, txt_file) > 0) {
         if (line[0] == '#') continue;
         parse_line(line, line_size, &x, &y);
@@ -106,12 +124,12 @@ void read_txt_util(
     VLOG(1) << "end reading txt";
 }
 
-template <class T>
+template <class T, class OffsetType>
 void read_csr_util(
     std::string in_path, std::string out_path,
-    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
-    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
-    bool weighted, bool only_in, bool only_out, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
+    OffsetType *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    OffsetType *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
+    bool weighted, bool only_in, bool only_out, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
 ) {
     VLOG(1) << "start reading csr";
     size_t size;
@@ -121,7 +139,7 @@ void read_csr_util(
     fclose(in_degree_file);
     if (!only_out) {
         FILE *in_csr_file = fopen(in_path.c_str(), "rb");
-        size = fread(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
+        size = fread(in_offset, sizeof(OffsetType), out_vertex_cnt + 1, in_csr_file);
         CHECK(size == out_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << out_vertex_cnt + 1;
         size = fread(in_source, 4, total_e, in_csr_file);
         CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
@@ -137,7 +155,7 @@ void read_csr_util(
     fclose(out_degree_file);
     if (!only_in) {
         FILE *out_csr_file = fopen(out_path.c_str(), "rb");
-        size = fread(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
+        size = fread(out_offset, sizeof(OffsetType), in_vertex_cnt + 1, out_csr_file);
         CHECK(size == in_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << in_vertex_cnt + 1;
         size = fread(out_dest, 4, total_e, out_csr_file);
         CHECK(size == total_e) << "fread failed, read size " << size << " actual " << total_e;
@@ -150,12 +168,12 @@ void read_csr_util(
     VLOG(1) << "end reading csr";
 }
 
-template <class T>
+template <class T, class OffsetType>
 void save_csr_util(
     std::string in_path, std::string out_path, 
-    uint32_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
-    uint32_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
-    bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, uint32_t total_e
+    OffsetType *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    OffsetType *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
+    bool weighted, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
 ) {
     VLOG(1) << "start saving csr";
     size_t size;
@@ -164,7 +182,7 @@ void save_csr_util(
     CHECK(size == out_vertex_cnt) << "fwrite failed, read size " << size << " actual " << out_vertex_cnt;
     fclose(in_degree_file);
     FILE *in_csr_file = fopen(in_path.c_str(), "wb");
-    size = fwrite(in_offset, 4, out_vertex_cnt + 1, in_csr_file);
+    size = fwrite(in_offset, sizeof(OffsetType), out_vertex_cnt + 1, in_csr_file);
     CHECK(size == out_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << out_vertex_cnt + 1;
     size = fwrite(in_source, 4, total_e, in_csr_file);
     CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;
@@ -178,7 +196,7 @@ void save_csr_util(
     CHECK(size == in_vertex_cnt) << "fwrite failed, read size " << size << " actual " << in_vertex_cnt;
     fclose(out_degree_file);
     FILE *out_csr_file = fopen(out_path.c_str(), "wb");
-    size = fwrite(out_offset, 4, in_vertex_cnt + 1, out_csr_file);
+    size = fwrite(out_offset, sizeof(OffsetType), in_vertex_cnt + 1, out_csr_file);
     CHECK(size == in_vertex_cnt + 1) << "fwrite failed, write size " << size << " actual " << in_vertex_cnt + 1;
     size = fwrite(out_dest, 4, total_e, out_csr_file);
     CHECK(size == total_e) << "fwrite failed, write size " << size << " actual " << total_e;

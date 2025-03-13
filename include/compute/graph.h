@@ -18,11 +18,12 @@ using json = nlohmann::json;
 
 struct graph_meta {
 
-    uint32_t total_v, total_e;
+    uint32_t total_v;
+    uint64_t total_e;
     
     graph_meta() {}
 
-    graph_meta(uint32_t total_v, uint32_t total_e): total_v(total_v), total_e(total_e) {}
+    graph_meta(uint32_t total_v, uint64_t total_e): total_v(total_v), total_e(total_e) {}
 
 };
 
@@ -96,7 +97,7 @@ public:
     }
 
     void read_csr(std::string in_path, std::string out_path) {
-        read_csr_util(
+        read_csr_util<ewT, uint32_t>(
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree,

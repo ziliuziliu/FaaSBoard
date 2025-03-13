@@ -30,7 +30,7 @@ uint32_t *bfs(raw_graph<empty> *g, uint32_t total_v, uint32_t bfs_root) {
             }
         }
     }
-    VLOG(1) << "correct top 100: " << log_array<uint32_t>(dis, 100).str();
+    VLOG(1) << "correct top 100: " << log_array<uint32_t>(dis, uint64_t(100)).str();
     return dis;
 }
 
@@ -58,7 +58,7 @@ float *pagerank(raw_graph<empty> *g, uint32_t total_v, int iterations) {
         }
         std::swap(cur_pr, nxt_pr);
     }
-    VLOG(1) << "correct top 100: " << log_array<float>(cur_pr, 100).str();
+    VLOG(1) << "correct top 100: " << log_array<float>(cur_pr, uint64_t(100)).str();
     return cur_pr;
 }
 
@@ -88,7 +88,7 @@ T* sssp(raw_graph<T>* g, uint32_t total_v, uint32_t sssp_root) {
         }
     }
 
-    VLOG(1) << "correct top 100: " << log_array<T>(dis, 100).str();
+    VLOG(1) << "correct top 100: " << log_array<T>(dis, uint64_t(100)).str();
     return dis;
 }
 
@@ -115,7 +115,7 @@ uint32_t *cc(raw_graph<empty> *g, uint32_t total_v) { // only undirected graph
             }
         }
     }
-    VLOG(1) << "correct top 100: " << log_array<uint32_t>(cc_id, 100).str();
+    VLOG(1) << "correct top 100: " << log_array<uint32_t>(cc_id, uint64_t(100)).str();
     return cc_id;
 }
 
@@ -126,7 +126,7 @@ T *read_result_from_file(std::string result_dir, uint32_t total_v) {
         check_result_freshness(entry.path());
         read_result_util<T>(entry.path(), result);
     }
-    VLOG(1) << "result from local file top 100: " << log_array<T>(result, 100).str();
+    VLOG(1) << "result from local file top 100: " << log_array<T>(result, uint64_t(100)).str();
     return result;
 }
 
@@ -144,7 +144,7 @@ T *read_result_from_s3(uint32_t total_v) {
             result[start + i] = data[i];
         }
     }
-    VLOG(1) << "result from s3 top 100: " << log_array<T>(result, 100).str();
+    VLOG(1) << "result from s3 top 100: " << log_array<T>(result, uint64_t(100)).str();
     return result;
 }
 

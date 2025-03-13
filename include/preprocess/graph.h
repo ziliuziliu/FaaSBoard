@@ -13,11 +13,12 @@
 
 struct graph_meta {
 
-    uint32_t total_v, total_e;
+    uint32_t total_v;
+    uint64_t total_e;
     
     graph_meta() {}
 
-    graph_meta(uint32_t total_v, uint32_t total_e):total_v(total_v), total_e(total_e) {}
+    graph_meta(uint32_t total_v, uint64_t total_e):total_v(total_v), total_e(total_e) {}
 
 };
 
@@ -30,7 +31,8 @@ public:
     graph_meta meta;
     bool weighted;
     uint32_t from_source, to_source, from_dest, to_dest, edges;
-    uint32_t *in_offset, *in_source, *out_offset, *out_dest, *in_degree, *out_degree;
+    uint32_t *in_offset, *out_offset;
+    uint32_t *in_source, *out_dest, *in_degree, *out_degree;
     ewT *in_weight, *out_weight;
 
     graph() {}
@@ -155,10 +157,10 @@ public:
         if (!detail) {
             return;
         }
-        VLOG(2) << "In Offset: " << log_array<uint32_t>(in_offset, to_dest - from_dest + 1).str();
-        VLOG(2) << "In Source: " << log_array<uint32_t>(in_source, edges).str();
-        VLOG(2) << "Out Offset: " << log_array<uint32_t>(out_offset, to_source - from_source + 1).str();
-        VLOG(2) << "Out Dest: " << log_array<uint32_t>(out_dest, edges).str();
+        VLOG(2) << "In Offset: " << log_array<uint32_t>(in_offset, uint64_t(to_dest - from_dest + 1)).str();
+        VLOG(2) << "In Source: " << log_array<uint32_t>(in_source, uint64_t(edges)).str();
+        VLOG(2) << "Out Offset: " << log_array<uint32_t>(out_offset, uint64_t(to_source - from_source + 1)).str();
+        VLOG(2) << "Out Dest: " << log_array<uint32_t>(out_dest, uint64_t(edges)).str();
     }
 
 };

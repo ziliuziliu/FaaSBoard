@@ -11,6 +11,7 @@
 #include <iostream>
 #include <immintrin.h>
 #include <bitset>
+#include <mutex>
 
 std::mutex reduce_adaptive_segment_m;
 
@@ -80,7 +81,8 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(CAAS_REDUCE_OP redu
         case CAAS_REDUCE_OP::UP:
             return reduce_uint32_f_avx_masked([](uint32_t *a, uint32_t *b, uint8_t *bm, uint32_t len){
                 __m256i ones = _mm256_set1_epi32(0xffffffff);
-                for (uint32_t i = 0; i < len; i += 8) {
+                uint32_t i = 0;
+                for (; i < len - 8; i += 8) {
                     __m256i aa = _mm256_loadu_si256((__m256i *)&a[i]);
                     __m256i bb = _mm256_loadu_si256((__m256i *)&b[i]);
                     __m256i amask = _mm256_cmpeq_epi32(aa, ones);
@@ -93,11 +95,19 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(CAAS_REDUCE_OP redu
                     *bm |= (uint8_t)change;
                     bm++;
                 }
+                for (; i < len; i++) {
+                    if (b[i] != 0xffffffff && a[i] == 0xffffffff) {
+                        a[i] = b[i];
+                        *bm |= (uint8_t)( 1 << (i % 8) );
+                    }
+                }
+        
             });
         case CAAS_REDUCE_OP::MIN:
             return reduce_uint32_f_avx_masked([](uint32_t *a, uint32_t *b, uint8_t *bm, uint32_t len){
                 __m256i ones = _mm256_set1_epi32(0xffffffff);
-                for (uint32_t i = 0; i < len; i += 8) {
+                uint32_t i = 0;
+                for (; i < len - 8; i += 8) {
                     __m256i aa = _mm256_loadu_si256((__m256i *)&a[i]);
                     __m256i bb = _mm256_loadu_si256((__m256i *)&b[i]);
                     __m256i cc = _mm256_min_epu32(aa, bb);
@@ -108,6 +118,12 @@ reduce_uint32_f_avx_masked get_reduce_func_uint32_avx_masked(CAAS_REDUCE_OP redu
                     *bm |= (uint8_t)change;
                     bm++;
                 }
+                for (; i < len; i++) {
+                    if (a[i] > b[i]) {
+                        a[i] = b[i];
+                        *bm |= (uint8_t)( 1 << (i % 8) );
+                    }
+                }        
             });
         default:
             LOG(FATAL) << "reduce op " << (int)reduce_op << " not implemented";
@@ -118,13 +134,18 @@ reduce_float_f_avx_masked get_reduce_func_float_avx_masked(CAAS_REDUCE_OP reduce
     switch (reduce_op) {
         case CAAS_REDUCE_OP::ADD:
             return reduce_float_f_avx_masked([](float *a, float *b, uint8_t *bm, uint32_t len){
-                for (uint32_t i = 0; i < len; i += 8) {
+                uint32_t i = 0;
+                for (; i < len - 8; i += 8) {
                     __m256 aa = _mm256_loadu_ps(&a[i]);
                     __m256 bb = _mm256_loadu_ps(&b[i]);
                     __m256 cc = _mm256_add_ps(aa, bb);
                     _mm256_storeu_ps(&a[i], cc);
                     *bm |= 0xff;
                     bm++;
+                }
+                for (; i < len; i++) {
+                    a[i] += b[i];
+                    *bm |= (uint8_t)( 1 << (i % 8) );
                 }
             });
         default:

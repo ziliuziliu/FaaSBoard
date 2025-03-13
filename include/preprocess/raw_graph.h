@@ -26,18 +26,19 @@ public:
 
     graph_meta meta;
     bool weighted;
-    uint32_t *in_offset, *in_source, *out_offset, *out_dest, *in_degree, *out_degree;
+    uint64_t *in_offset, *out_offset;
+    uint32_t *in_source, *out_dest, *in_degree, *out_degree;
     ewT *in_weight, *out_weight;
 
     raw_graph() {}
 
-    raw_graph(uint32_t total_v, uint32_t total_e) {
+    raw_graph(uint32_t total_v, uint64_t total_e) {
         meta = graph_meta(total_v, total_e);
         weighted = !std::is_same<ewT, void *>::value;
-        in_offset = new uint32_t[meta.total_v + 1]();
+        in_offset = new uint64_t[meta.total_v + 1]();
         in_source = new uint32_t[meta.total_e]();
         in_degree = new uint32_t[meta.total_v]();
-        out_offset = new uint32_t[meta.total_v + 1]();
+        out_offset = new uint64_t[meta.total_v + 1]();
         out_dest = new uint32_t[meta.total_e]();
         out_degree = new uint32_t[meta.total_v]();
         if (weighted) {
@@ -56,7 +57,7 @@ public:
     }
 
     void read_csr(std::string in_path, std::string out_path) {
-        read_csr_util<ewT>(
+        read_csr_util<ewT, uint64_t>(
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
@@ -65,7 +66,7 @@ public:
     }
 
     void save_csr(std::string in_path, std::string out_path) {
-        save_csr_util<ewT>(
+        save_csr_util<ewT, uint64_t>(
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
@@ -133,7 +134,7 @@ public:
                     }
                 }
                 uint32_t current_edges = 0;
-                for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
+                for (uint64_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
                     if (source >= block.from_source && source < block.to_source) {
                         current_edges++;
@@ -173,7 +174,7 @@ public:
                     }
                 }
                 uint32_t current_edges = 0;
-                for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
+                for (uint64_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     if (dest >= block.from_dest && dest < block.to_dest) {
                         current_edges++;
@@ -194,13 +195,13 @@ public:
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
             cuts[i] = cuts[i] / 64 * 64;
         }
-        VLOG(1) << "aligned cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
+        VLOG(1) << "aligned cuts: " << log_array<uint32_t>(cuts.data(), uint64_t(cuts.size())).str();
         partition_result result;
         #pragma omp parallel for
         for (int t = 0; t < cut; t++) {
             std::vector<uint32_t> block_edges(cut);
             for (uint32_t i = cuts[t]; i < cuts[t + 1]; i++) {
-                for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
+                for (uint64_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     for (int k = 0; k < cut; k++) {
                         if (dest >= cuts[k] && dest < cuts[k + 1]) {
@@ -238,13 +239,13 @@ public:
         return generate_checkerboard_partition_from_cuts(cut, cuts);
     }
 
-    std::vector<uint32_t> generate_workload_limit_check_list(uint32_t left, uint32_t right) {
+    std::vector<uint64_t> generate_workload_limit_check_list(uint64_t left, uint64_t right) {
         int total_thread = omp_get_max_threads();
-        std::vector<uint32_t> check_list;
-        if (left == right || (int)(right - left - 1) < total_thread) {
+        std::vector<uint64_t> check_list;
+        if (left == right || (right - left - 1) < uint64_t(total_thread)) {
             check_list.push_back(left + (right - left) / 2);
         } else {
-            uint32_t step = (right - left - 1) / total_thread, p = left;
+            uint64_t step = (right - left - 1) / total_thread, p = left;
             for (uint32_t i = 0; i < (right - left - 1) % total_thread; i++) {
                 p += step + 1;
                 check_list.push_back(p);
@@ -260,22 +261,23 @@ public:
     partition_result checkerboard_partition(int cut) {
         timer t;
         t.tick("partition time");
-        uint32_t left = 1, right = meta.total_e;
+        uint64_t left = 1, right = meta.total_e;
         std::vector<uint32_t> result_cuts(cut + 1);
         while ((double)(right - left) / right >= 0.01) {
             VLOG(1) << "left: " << left << ", right: " << right;
-            std::vector<uint32_t> check_list = generate_workload_limit_check_list(left, right);
+            std::vector<uint64_t> check_list = generate_workload_limit_check_list(left, right);
             #pragma omp parallel for
             for (int t = 0; t < (int)check_list.size(); t++) {
-                std::vector<uint32_t> cuts, workload(cut * 2 - 1), in_workload(cut), out_workload(cut);
+                std::vector<uint32_t> cuts, in_workload(cut), out_workload(cut);
+                std::vector<uint64_t> workload(cut * 2 - 1);
                 cuts.push_back(0);
-                uint32_t workload_limit = check_list[t];
+                uint64_t workload_limit = check_list[t];
                 bool plan_satisfy_limit = true;
                 for (uint32_t i = 0; i < meta.total_v; i++) {
                     int current_cut = cuts.size(), diagonal = 0;
                     std::fill(in_workload.begin(), in_workload.end(), 0);
                     std::fill(out_workload.begin(), out_workload.end(), 0);
-                    for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
+                    for (uint64_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                         uint32_t dest = out_dest[j];
                         if (dest == i) diagonal = 1;
                         if (dest >= i) continue;
@@ -289,7 +291,7 @@ public:
                             }
                         }
                     }
-                    for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
+                    for (uint64_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                         uint32_t source = in_source[j];
                         if (source >= i) continue;
                         for (int k = 0; k < current_cut; k++) {
@@ -304,17 +306,17 @@ public:
                     }
                     bool block_satisfy_limit = true;
                     for (int j = 0; j < current_cut - 1; j++)
-                        if (workload[j] + out_workload[j] > workload_limit) {
+                        if (workload[j] + uint64_t(out_workload[j]) > workload_limit) {
                             block_satisfy_limit = false;
                             break;
                         }
                     for (int j = 0; j < current_cut - 1; j++)
-                        if (workload[current_cut * 2 - 2 - j] + in_workload[j] > workload_limit) {
+                        if (workload[current_cut * 2 - 2 - j] + uint64_t(in_workload[j]) > workload_limit) {
                             block_satisfy_limit = false;
                             break;
                         }
                     if (current_cut > 0) 
-                        if (workload[current_cut - 1] + in_workload[current_cut - 1] + out_workload[current_cut - 1] + diagonal > workload_limit)
+                        if (workload[current_cut - 1] + uint64_t( in_workload[current_cut - 1] + out_workload[current_cut - 1] + diagonal ) > workload_limit)
                             block_satisfy_limit = false;
                     if (!block_satisfy_limit) {
                         if ((int)cuts.size() == cut) {
@@ -326,10 +328,10 @@ public:
                         std::fill(workload.begin(), workload.end(), 0);
                     }
                     for (int j = 0; j < current_cut; j++)
-                        workload[j] += out_workload[j];
+                        workload[j] += uint64_t(out_workload[j]);
                     for (int j = 0; j < current_cut; j++)
-                        workload[current_cut * 2 - 2 - j] += in_workload[j];
-                    workload[current_cut - 1] += diagonal;
+                        workload[current_cut * 2 - 2 - j] += uint64_t(in_workload[j]);
+                    workload[current_cut - 1] += uint64_t(diagonal);
                 }
                 #pragma omp critical 
                 {
@@ -352,14 +354,15 @@ public:
 
     std::vector<graph_set<ewT> *> partition(partition_result result) {
         std::vector<graph<ewT> *> subgraphs;
-        for (auto block: result.blocks)
-            subgraphs.push_back(new graph<ewT>(block, meta));
+        for (auto block: result.blocks){
+            if( block.edges != 0 ) subgraphs.push_back(new graph<ewT>(block, meta));
+        }
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_dest; i < subgraph -> to_dest; i++) {
                 subgraph -> begin_add_edge(i, EDGE_DIRECTION::INCOMING);
-                for (uint32_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
+                for (uint64_t j = in_offset[i]; j < in_offset[i + 1]; j++) {
                     uint32_t source = in_source[j];
                     if (source >= subgraph -> from_source && source < subgraph -> to_source) {
                         if (!weighted) {
@@ -378,7 +381,7 @@ public:
             graph<ewT> *subgraph = subgraphs[t];
             for (uint32_t i = subgraph -> from_source; i < subgraph -> to_source; i++) {
                 subgraph -> begin_add_edge(i, EDGE_DIRECTION::OUTGOING);
-                for (uint32_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
+                for (uint64_t j = out_offset[i]; j < out_offset[i + 1]; j++) {
                     uint32_t dest = out_dest[j];
                     if (dest >= subgraph -> from_dest && dest < subgraph -> to_dest) {
                         if (!weighted) {
@@ -414,9 +417,9 @@ public:
     void print() {
         VLOG(1) << "Total V: " << meta.total_v;
         VLOG(1) << "Total E: " << meta.total_e;
-        VLOG(2) << "In Offset: " << log_array<uint32_t>(in_offset, meta.total_v + 1).str();
+        VLOG(2) << "In Offset: " << log_array<uint64_t>(in_offset, uint64_t(meta.total_v + 1)).str();
         VLOG(2) << "In Source: " << log_array<uint32_t>(in_source, meta.total_e).str();
-        VLOG(2) << "Out Offset: " << log_array<uint32_t>(out_offset, meta.total_v + 1).str();
+        VLOG(2) << "Out Offset: " << log_array<uint64_t>(out_offset, uint64_t(meta.total_v + 1)).str();
         VLOG(2) << "Out Dest: " << log_array<uint32_t>(out_dest, meta.total_e).str();
     }
 

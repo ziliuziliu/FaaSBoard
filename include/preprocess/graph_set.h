@@ -208,11 +208,12 @@ public:
 
     static void simulation(std::vector<graph_set<ewT> *> graphsets) {
         std::vector<uint32_t> works;
-        uint32_t total_work = 0, min_work, max_work;
+        uint32_t min_work, max_work;
+        uint64_t total_work = 0;
         double avg_work;
         int total_block = graphsets.size();
         for (auto graphset: graphsets) {
-            total_work += graphset -> edges;
+            total_work += uint64_t(graphset -> edges);
             works.push_back(graphset -> edges);
         }
         sort(works.begin(), works.end());
@@ -284,7 +285,7 @@ public:
         for (auto cut : cutset) {
             cuts.push_back(cut);
         }
-        VLOG(1) << "all cuts: " << log_array<uint32_t>(cuts.data(), cuts.size()).str();
+        VLOG(1) << "all cuts: " << log_array<uint32_t>(cuts.data(), uint64_t(cuts.size())).str();
         fs::path root_dir = FLAGS_graph_root_dir;
         if (fs::exists(root_dir)) {
             fs::remove_all(root_dir);
@@ -389,7 +390,7 @@ public:
             graphs_meta_file.close();
             for (int j = 0; j < (int)graphset -> graphs.size(); j++) {
                 graph<ewT> *graph = graphset -> graphs[j];
-                save_csr_util(
+                save_csr_util<ewT, uint32_t>(
                     root_dir / std::to_string(i) / std::string("graph" + std::to_string(j) + ".csr.in"),
                     root_dir / std::to_string(i) / std::string("graph" + std::to_string(j) + ".csr.out"),
                     graph -> in_offset, graph -> in_source, graph -> in_weight, graph -> in_degree,
