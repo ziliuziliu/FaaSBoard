@@ -15,8 +15,10 @@ int main_impl(int argc, char* argv[]) {
     FLAGS_logtostderr = 1;
 
     raw_graph<T> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
-    g.read_txt(FLAGS_graph_file, FLAGS_undirected);
+    // g.read_txt(FLAGS_graph_file, FLAGS_undirected);
     // g.print();
+    VLOG(1) << "reading directly from CSR";
+    g.read_csr(FLAGS_graph_file + ".csr.in", FLAGS_graph_file + ".csr.out");
 
     std::string strategy = FLAGS_strategy;
     VLOG(1) << "partition_strategy: " << strategy;

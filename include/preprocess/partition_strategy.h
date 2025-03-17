@@ -91,10 +91,7 @@ private:
     }
 
     void handle_save(const std::vector<graph_set<ewT>*>& new_graphsets = {}) {
-        double total_resource;
-        VLOG(1) << "total resource (cores)?";
-        std::cin >> total_resource;
-        graph_set<ewT>::save(new_graphsets.empty() ? graphsets : new_graphsets, total_resource);
+        graph_set<ewT>::save(new_graphsets.empty() ? graphsets : new_graphsets);
     }
 
     void handle_row() {

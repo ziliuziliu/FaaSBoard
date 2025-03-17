@@ -135,12 +135,14 @@ void read_csr_util(
     VLOG(1) << "start reading csr";
     size_t size;
     if (need_global_degree) {
+        VLOG(1) << "reading in degree";
         FILE *in_degree_file = fopen((in_path + ".deg").c_str(), "rb");
         size = fread(in_degree, 4, out_vertex_cnt, in_degree_file);
         CHECK(size == out_vertex_cnt) << "fread failed, read size " << size << " actual " << out_vertex_cnt;
         fclose(in_degree_file);
     }
     if (!only_out) {
+        VLOG(1) << "reading in edges";
         FILE *in_csr_file = fopen(in_path.c_str(), "rb");
         size = fread(in_offset, sizeof(OffsetType), out_vertex_cnt + 1, in_csr_file);
         CHECK(size == out_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << out_vertex_cnt + 1;
@@ -153,12 +155,14 @@ void read_csr_util(
         fclose(in_csr_file);
     }
     if (need_global_degree) {
+        VLOG(1) << "reading out degree";
         FILE *out_degree_file = fopen((out_path + ".deg").c_str(), "rb");
         size = fread(out_degree, 4, in_vertex_cnt, out_degree_file);
         CHECK(size == in_vertex_cnt) << "fread failed, read size " << size << " actual " << in_vertex_cnt;
         fclose(out_degree_file);
     }
     if (!only_in) {
+        VLOG(1) << "reading out edges";
         FILE *out_csr_file = fopen(out_path.c_str(), "rb");
         size = fread(out_offset, sizeof(OffsetType), in_vertex_cnt + 1, out_csr_file);
         CHECK(size == in_vertex_cnt + 1) << "fread failed, read size " << size << " actual " << in_vertex_cnt + 1;

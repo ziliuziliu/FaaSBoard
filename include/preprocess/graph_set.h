@@ -5,6 +5,7 @@
 #include "util/json.h"
 #include "util/flags.h"
 #include "util/mathtools.h"
+#include "util/types.h"
 
 #include <set>
 #include <algorithm>
@@ -26,10 +27,15 @@ public:
     std::vector<graph<ewT> *> graphs;
     bitmap *recv_map, *send_map, *manage_map;
     uint32_t edges;
+    uint64_t workload;
 
     graph_set() {}
 
-    graph_set(graph<ewT> *subgraph, graph_meta meta): meta(meta), edges(subgraph -> edges) {
+    graph_set(graph<ewT> *subgraph, graph_meta meta): meta(meta) {
+        edges = subgraph -> edges;
+        workload = (uint64_t)subgraph -> edges 
+            + (uint64_t)COMM_COMP_RATIO * (subgraph -> to_source - subgraph -> from_source) 
+            + (uint64_t)COMM_COMP_RATIO * (subgraph -> to_dest - subgraph -> from_dest);
         graphs = std::vector<graph<ewT> *>{subgraph};
         recv_map = new bitmap(meta.total_v);
         send_map = new bitmap(meta.total_v);
@@ -58,6 +64,7 @@ public:
         send_map = s1 -> send_map -> OR(s2 -> send_map);
         manage_map = s1 -> manage_map -> OR(s2 -> manage_map);
         edges = s1 -> edges + s2 -> edges;
+        workload = s1 -> workload + s2 -> workload;
     }
 
     ~graph_set() {
@@ -124,13 +131,17 @@ public:
 
     static std::vector<graph_set<ewT> *> binpack(std::vector<graph_set<ewT> *> graphsets, int total_block, double balance_ratio_limit) {
         int graphset_limit = total_block;
-        uint32_t workload_limit = (uint32_t)((double)graphsets[0] -> meta.total_e / graphset_limit * balance_ratio_limit);
+        uint64_t overall_workload = 0;
+        for (auto graphset : graphsets) {
+            overall_workload += graphset -> workload;
+        }
+        uint64_t workload_limit = (uint64_t)((double)overall_workload / graphset_limit * balance_ratio_limit);
         std::sort(graphsets.begin(), graphsets.end(), [](graph_set<ewT> *a, graph_set<ewT> *b) {
-            if (a -> edges > b -> edges)
+            if (a -> workload > b -> workload)
                 return true;
             return false;
         });
-        if (graphsets[0] -> edges > workload_limit)
+        if (graphsets[0] -> workload > workload_limit)
             throw std::runtime_error("no satisfying plan");
         std::vector<bool> deleted(graphsets.size());
         for (int i = graphset_limit; i < (int)graphsets.size(); i++) {
@@ -140,7 +151,7 @@ public:
             #pragma omp parallel for
             for (int j = 0; j < (int)graphsets.size(); j++)
                 for (int k = j + 1; k < (int)graphsets.size(); k++) {
-                    if (deleted[j] || deleted[k] || graphsets[j] -> edges + graphsets[k] -> edges > workload_limit) {
+                    if (deleted[j] || deleted[k] || graphsets[j] -> workload + graphsets[k] -> workload > workload_limit) {
                         continue;
                     }
                     uint32_t gain = graph_set<ewT>::gain(graphsets[j], graphsets[k]);
@@ -213,8 +224,8 @@ public:
         double avg_work;
         int total_block = graphsets.size();
         for (auto graphset: graphsets) {
-            total_work += uint64_t(graphset -> edges);
-            works.push_back(graphset -> edges);
+            total_work += uint64_t(graphset -> workload);
+            works.push_back(graphset -> workload);
         }
         sort(works.begin(), works.end());
         avg_work = (double)total_work / total_block;
@@ -258,7 +269,7 @@ public:
             graph -> print(detail);
     }
 
-    static void save(std::vector<graph_set<ewT> *> graphsets, double total_resource) {
+    static void save(std::vector<graph_set<ewT> *> graphsets) {
         for (auto graphset : graphsets) {
             std::vector<graph<ewT> *> non_empty_graphs;
             for (auto graph : graphset -> graphs) {
@@ -315,8 +326,7 @@ public:
             }
         }
         for (int i = 0; i < (int)graphsets.size(); i++) {
-            VLOG(1) << "graphset " << std::to_string(i) 
-                << " resource " << total_resource * graphsets[i] -> edges / FLAGS_edges;
+            VLOG(1) << "graphset " << std::to_string(i); 
             fs::create_directory(root_dir / std::to_string(i));
             graph_set<ewT> *graphset = graphsets[i];
             json graphs_meta;

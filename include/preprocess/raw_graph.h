@@ -6,6 +6,7 @@
 #include "partition.h"
 #include "util/io.h"
 #include "util/timer.h"
+#include "util/types.h"
 
 #include <algorithm>
 #include <string>
@@ -261,9 +262,9 @@ public:
     partition_result checkerboard_partition(int cut) {
         timer t;
         t.tick("partition time");
-        uint64_t left = 1, right = meta.total_e;
-        std::vector<uint32_t> result_cuts(cut + 1);
-        while ((double)(right - left) / right >= 0.01) {
+        uint64_t left = 0, right = meta.total_e + meta.total_v * 2 * COMM_COMP_RATIO;
+        std::vector<uint32_t> result_cuts(cut + 1, 0);
+        while ((double)(right - left) / right >= 0.01 || result_cuts[cut - 1] == 0) {
             VLOG(1) << "left: " << left << ", right: " << right;
             std::vector<uint64_t> check_list = generate_workload_limit_check_list(left, right);
             #pragma omp parallel for
@@ -304,6 +305,10 @@ public:
                             }
                         }
                     }
+                    for (int j = 0; j < current_cut; j++) {
+                        in_workload[j] += COMM_COMP_RATIO;
+                        out_workload[j] += COMM_COMP_RATIO;
+                    }
                     bool block_satisfy_limit = true;
                     for (int j = 0; j < current_cut - 1; j++)
                         if (workload[j] + uint64_t(out_workload[j]) > workload_limit) {
@@ -316,31 +321,41 @@ public:
                             break;
                         }
                     if (current_cut > 0) 
-                        if (workload[current_cut - 1] + uint64_t( in_workload[current_cut - 1] + out_workload[current_cut - 1] + diagonal ) > workload_limit)
+                        if (workload[current_cut - 1] + uint64_t(in_workload[current_cut - 1] + out_workload[current_cut - 1] + diagonal) > workload_limit)
                             block_satisfy_limit = false;
                     if (!block_satisfy_limit) {
-                        if ((int)cuts.size() == cut) {
+                        cuts.push_back(i);
+                        if ((int)cuts.size() == cut + 1) {
                             plan_satisfy_limit = false;
                             break;
                         }
-                        cuts.push_back(i);
                         current_cut++;
-                        std::fill(workload.begin(), workload.end(), 0);
+                        for (int j = 0; j < current_cut - 1; j++) {
+                            workload[j] = (uint64_t)(cuts[j + 1] - cuts[j]) * COMM_COMP_RATIO;
+                        }
+                        for (int j = 0; j < current_cut - 1; j++) {
+                            workload[current_cut * 2 - 2 - j] = (uint64_t)(cuts[j + 1] - cuts[j]) * COMM_COMP_RATIO;
+                        }
+                        workload[current_cut - 1] = 0;
                     }
-                    for (int j = 0; j < current_cut; j++)
+                    for (int j = 0; j < current_cut; j++) {
                         workload[j] += uint64_t(out_workload[j]);
-                    for (int j = 0; j < current_cut; j++)
+                    }
+                    for (int j = 0; j < current_cut; j++) {
                         workload[current_cut * 2 - 2 - j] += uint64_t(in_workload[j]);
+                    }
                     workload[current_cut - 1] += uint64_t(diagonal);
                 }
                 #pragma omp critical 
                 {
-                    if (workload_limit >= left && workload_limit <= right) {
-                        if (plan_satisfy_limit) {
+                    if (plan_satisfy_limit) {
+                        if (workload_limit >= left && workload_limit <= right) {
                             for (int j = 0; j < (int)cuts.size(); j++)   
                                 result_cuts[j] = cuts[j];
                             right = workload_limit - 1;
-                        } else {
+                        }
+                    } else {
+                        if (workload_limit >= left && workload_limit <= right) {
                             left = workload_limit + 1;
                         }
                     }

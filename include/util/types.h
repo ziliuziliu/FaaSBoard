@@ -8,6 +8,8 @@
 
 #define CAAS_KILL_MESSAGE 0xdeadbeef
 
+#define COMM_COMP_RATIO 10
+
 #define FARGATE_CLUSTER "faasboard"
 #define FARGATE_SERVICE "proxy_server"
 
