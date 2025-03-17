@@ -5,6 +5,7 @@ ENV FUNCTION_PATH=${FUNCTION_PATH}
 ENV GRAPH_DIR=${GRAPH_DIR}
 SHELL ["/bin/bash", "-c"]
 COPY ${GRAPH_DIR}/*.out /var/task/graph/
+COPY ${GRAPH_DIR}/*.deg /var/task/graph/
 COPY ${GRAPH_DIR}/*.meta /var/task/graph/
 COPY ${FUNCTION_PATH}/ /var/task/
 RUN chmod +x /var/task/bootstrap

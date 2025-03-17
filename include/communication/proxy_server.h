@@ -173,20 +173,20 @@ public:
             }
 
             case COMM_TYPE::CAAS_PAIR: {
-                // VLOG(1) << "reduce sparse pair";
+                VLOG(1) << "reduce sparse pair";
                 reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
                 break;
             }
 
             case COMM_TYPE::CAAS_SPARSE: {
-                // VLOG(1) << "reduce sparse";
+                VLOG(1) << "reduce sparse";
                 bitmap *segment_bm = new bitmap(vec_len, segment + 5);
                 reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
                 break;
             }
 
             case COMM_TYPE::CAAS_DENSE: {
-                // VLOG(1) << "reduce dense";
+                VLOG(1) << "reduce dense";
                 {
                     std::lock_guard<std::mutex> reduce_lg(reduce_adaptive_segment_m);
                     reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
@@ -241,10 +241,10 @@ void add_fd_to_segment(int fd, bool root, segment_base *segment) {
         }
         segment -> fds.insert(fd);
     }
-    // VLOG(1) << "object id " << segment -> object_id
-        // << " add fd " << fd << " root " << (int)root 
-        // << " current fds " << (int)segment -> fds.size()
-        // << " all connected " << segment -> all_connected();
+    VLOG(1) << "object id " << segment -> object_id
+        << " add fd " << fd << " root " << (int)root 
+        << " current fds " << (int)segment -> fds.size()
+        << " all connected " << segment -> all_connected();
 }
 
 void remove_fd_from_segment(int fd, segment_base *segment) {
@@ -256,9 +256,9 @@ void remove_fd_from_segment(int fd, segment_base *segment) {
         }
         segment -> fds.erase(fd);
     }
-    // VLOG(1) << "object id " << segment -> object_id
-        // << " remove fd " << fd 
-        // << " current fds " << (int)segment -> fds.size();
+    VLOG(1) << "object id " << segment -> object_id
+        << " remove fd " << fd 
+        << " current fds " << (int)segment -> fds.size();
 }
 
 void work(int thread_id, int epoll_fd) {
@@ -269,7 +269,7 @@ void work(int thread_id, int epoll_fd) {
         std::pair<char *, size_t> raw_data = caas_recv_all(client_fd);
         cas<int>(&thread_stuck[thread_id], 1, 0);
         if (raw_data.second == 1) {
-            // VLOG(1) << "error msg " << (int)raw_data.first[0];
+            VLOG(1) << "error msg " << (int)raw_data.first[0];
         }
         segment_base *segment;
         {
@@ -277,7 +277,7 @@ void work(int thread_id, int epoll_fd) {
             segment = fd_segment[client_fd];
         }
         if (raw_data.first == nullptr) {
-            // VLOG(1) << "fd " << client_fd << " closed";
+            VLOG(1) << "fd " << client_fd << " closed";
             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
             close(client_fd);
             {
@@ -309,7 +309,7 @@ void work(int thread_id, int epoll_fd) {
                     std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
                     segment_table.erase(combine(segment -> request_id, segment -> object_id));
                 }
-                // VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
+                VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
                 delete segment;
             }
             cas<int>(&fd_in_queue[client_fd], 1, 0);
@@ -320,9 +320,9 @@ void work(int thread_id, int epoll_fd) {
         std::vector<int> fd_list;
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_OP::MASKED_BROADCAST:
-                // VLOG(1) << "masked broadcast from request " << request_id 
-                    // << " object " << object_id
-                    // << " fd " << client_fd;
+                VLOG(1) << "masked broadcast from request " << request_id 
+                    << " object " << object_id
+                    << " fd " << client_fd;
                 fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
                 #pragma omp parallel for
                 for (int i = 0; i < (int)fd_list.size(); i++) {
@@ -331,9 +331,9 @@ void work(int thread_id, int epoll_fd) {
                 delete [] raw_data.first;
                 break;
             case CAAS_OP::MASKED_REDUCE:
-                // VLOG(1) << "masked reduce from request " << request_id 
-                    // << " object " << object_id
-                    // << " fd " << client_fd;
+                VLOG(1) << "masked reduce from request " << request_id 
+                    << " object " << object_id
+                    << " fd " << client_fd;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
@@ -353,9 +353,9 @@ void work(int thread_id, int epoll_fd) {
                 delete [] raw_data.first;
                 break;
             case CAAS_OP::ALLREDUCE:
-                // VLOG(1) << "all reduce from request " << request_id 
-                    // << " object " << object_id
-                    // << " fd " << client_fd;
+                VLOG(1) << "all reduce from request " << request_id 
+                    << " object " << object_id
+                    << " fd " << client_fd;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
@@ -364,10 +364,10 @@ void work(int thread_id, int epoll_fd) {
                 segment -> reduce_cnt++;
                 if (segment -> reduce_cnt == (int)segment -> instances) {
                     segment -> round++;
-                    // VLOG(1) << "now we have enough instances, reduce_cnt " << segment -> reduce_cnt;
+                    VLOG(1) << "now we have enough instances, reduce_cnt " << segment -> reduce_cnt;
                     if (config -> dynamic_invoke && !segment -> reinvoke_commands.empty()) {
                         segment -> m.unlock();
-                        // VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
+                        VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
                         cas<int>(&thread_stuck[thread_id], 0, 1);
                         {
                             std::unique_lock<std::mutex> request_reinvoke_ul(request_reinvoke_m);
@@ -377,7 +377,7 @@ void work(int thread_id, int epoll_fd) {
                         }
                         cas<int>(&thread_stuck[thread_id], 1, 0);
                         segment -> m.lock();
-                        // VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
+                        VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
                         segment -> reduce_cnt -= segment -> reinvoke_commands.size();
                         {
                             std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
@@ -386,7 +386,7 @@ void work(int thread_id, int epoll_fd) {
                         for (int i = 0; i < (int)segment -> reinvoke_commands.size(); i++) {
                             std::string command = segment -> reinvoke_commands[i];
                             std::thread([command](){
-                                // VLOG(1) << "reinvoking: " << command;
+                                VLOG(1) << "reinvoking: " << command;
                                 if (command.substr(0, 4) == "sudo") {
                                     try {
                                         int result = system(command.c_str());
@@ -425,8 +425,8 @@ void work(int thread_id, int epoll_fd) {
                         segment -> reset();
                     }
                 } else if (config -> dynamic_invoke) {
-                    // VLOG(1) << "current round " << segment -> round 
-                        // << " reduce_cnt " << segment -> reduce_cnt;
+                    VLOG(1) << "current round " << segment -> round 
+                        << " reduce_cnt " << segment -> reduce_cnt;
                     int prefix_len = (5 + segment -> vec_len) << 2;
                     if (raw_data.second != (size_t)prefix_len) {
                         int total_fds = *(int *)(raw_data.first + prefix_len);
@@ -436,7 +436,7 @@ void work(int thread_id, int epoll_fd) {
                                 segment -> m.lock();
                                 if (round == segment -> round) {
                                     std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
-                                    // VLOG(1) << "decide to kill " << command;
+                                    VLOG(1) << "decide to kill " << command;
                                     segment -> reinvoke_commands.push_back(command);
                                     segment -> m.unlock();
                                     {
@@ -446,10 +446,10 @@ void work(int thread_id, int epoll_fd) {
                                         }
                                         request_reinvoke_cnt[segment -> request_id] += total_fds;
                                     }
-                                    // VLOG(1) << "send kill message to fd " << client_fd 
-                                        // << " round " << round 
-                                        // << " current round " << segment -> round
-                                        // << " total fds " << total_fds;
+                                    VLOG(1) << "send kill message to fd " << client_fd 
+                                        << " round " << round 
+                                        << " current round " << segment -> round
+                                        << " total fds " << total_fds;
                                     uint32_t kill_msg = CAAS_KILL_MESSAGE;
                                     caas_send_all(client_fd, (char *)&kill_msg, sizeof(uint32_t));
                                 } else {
@@ -472,15 +472,15 @@ void work(int thread_id, int epoll_fd) {
 
 void run() {
     config = exec_config::build_by_flags();
-    // VLOG(1) << "aws sdk init";
+    VLOG(1) << "aws sdk init";
     if (config -> enable_sdk()) {
         sdk_init();
     }
     if (config -> enable_lambda_sdk()) {
         l_sdk = new lambda_sdk();
-        // VLOG(1) << "dynamic invoke enabled";
+        VLOG(1) << "dynamic invoke enabled";
     }
-    // VLOG(1) << "proxy running on " << config -> cores << " cores";
+    VLOG(1) << "proxy running on " << config -> cores << " cores";
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     sockaddr_in server_address;
@@ -495,7 +495,7 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
-    // VLOG(1) << "proxy server started";
+    VLOG(1) << "proxy server started";
 
     fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores];
     for (int i = 0; i < (int)config -> cores; i++) {
@@ -521,11 +521,11 @@ void run() {
                 uint32_t vec_len = connect_data[3], base_vertex_value = connect_data[4];
                 uint32_t flag = connect_data[5];
                 bool has_bitmap = connect_data[6];
-                // VLOG(1) << "connection from request " << request_id 
-                    // << " partition " << partition_id
-                    // << " object " << object_id 
-                    // << " vec_len " << vec_len
-                    // << " assigned fd " << client_fd;
+                VLOG(1) << "connection from request " << request_id 
+                    << " partition " << partition_id
+                    << " object " << object_id 
+                    << " vec_len " << vec_len
+                    << " assigned fd " << client_fd;
                 REQUEST_EXECUTION_STATUS status;
                 {
                     std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
@@ -535,7 +535,7 @@ void run() {
                     status = request_status_table[request_id];
                 }
                 if (status == REQUEST_EXECUTION_STATUS::EXECUTE) {
-                    // VLOG(1) << "wrong connection, closing fd " << client_fd;
+                    VLOG(1) << "wrong connection, closing fd " << client_fd;
                     close(client_fd);
                     continue;
                 }

@@ -129,14 +129,17 @@ void read_csr_util(
     std::string in_path, std::string out_path,
     OffsetType *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
     OffsetType *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
-    bool weighted, bool only_in, bool only_out, uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
+    bool weighted, bool only_in, bool only_out, bool need_global_degree,
+    uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
 ) {
     VLOG(1) << "start reading csr";
     size_t size;
-    FILE *in_degree_file = fopen((in_path + ".deg").c_str(), "rb");
-    size = fread(in_degree, 4, out_vertex_cnt, in_degree_file);
-    CHECK(size == out_vertex_cnt) << "fread failed, read size " << size << " actual " << out_vertex_cnt;
-    fclose(in_degree_file);
+    if (need_global_degree) {
+        FILE *in_degree_file = fopen((in_path + ".deg").c_str(), "rb");
+        size = fread(in_degree, 4, out_vertex_cnt, in_degree_file);
+        CHECK(size == out_vertex_cnt) << "fread failed, read size " << size << " actual " << out_vertex_cnt;
+        fclose(in_degree_file);
+    }
     if (!only_out) {
         FILE *in_csr_file = fopen(in_path.c_str(), "rb");
         size = fread(in_offset, sizeof(OffsetType), out_vertex_cnt + 1, in_csr_file);
@@ -149,10 +152,12 @@ void read_csr_util(
         }
         fclose(in_csr_file);
     }
-    FILE *out_degree_file = fopen((out_path + ".deg").c_str(), "rb");
-    size = fread(out_degree, 4, in_vertex_cnt, out_degree_file);
-    CHECK(size == in_vertex_cnt) << "fread failed, read size " << size << " actual " << in_vertex_cnt;
-    fclose(out_degree_file);
+    if (need_global_degree) {
+        FILE *out_degree_file = fopen((out_path + ".deg").c_str(), "rb");
+        size = fread(out_degree, 4, in_vertex_cnt, out_degree_file);
+        CHECK(size == in_vertex_cnt) << "fread failed, read size " << size << " actual " << in_vertex_cnt;
+        fclose(out_degree_file);
+    }
     if (!only_in) {
         FILE *out_csr_file = fopen(out_path.c_str(), "rb");
         size = fread(out_offset, sizeof(OffsetType), in_vertex_cnt + 1, out_csr_file);

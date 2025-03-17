@@ -77,10 +77,10 @@ public:
         weighted = !std::is_same<ewT, void *>::value;
         manage = std::max(from_source, from_dest) > std::min(to_source, to_dest);
         in_offset = config -> sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
-        in_degree = new uint32_t[to_dest - from_dest]();
+        in_degree = config -> need_global_degree ? new uint32_t[to_dest - from_dest]() : nullptr;
         in_source = config -> sparse_only ? nullptr : new uint32_t[edges]();
         out_offset = config -> dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
-        out_degree = new uint32_t[to_source - from_source]();
+        out_degree = config -> need_global_degree ? new uint32_t[to_source - from_source]() : nullptr;
         out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
         if (weighted) {
             in_weight = config -> sparse_only ? nullptr : new ewT[edges]();
@@ -101,7 +101,8 @@ public:
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree,
-            weighted, config -> dense_only, config -> sparse_only, to_source - from_source, to_dest - from_dest, edges
+            weighted, config -> dense_only, config -> sparse_only, config -> need_global_degree,
+            to_source - from_source, to_dest - from_dest, edges
         );
     }
 

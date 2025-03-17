@@ -68,7 +68,7 @@ def main():
     dockerfile = None
     # os.system('aws ecr create-repository --repository-name lambda-{}'.format(function_name))
     os.system('aws ecr get-login-password --region {} | docker login --username AWS --password-stdin {}.dkr.ecr.{}.amazonaws.com'.format(aws_config['region'], aws_config['account_id'], aws_config['region']))
-    for func_name in ['bfs','pr']:
+    for func_name in ['cc']:
         os.system('aws ecr create-repository --repository-name lambda-{}-{}'.format(args.graph_name ,func_name))
         index = 0
         print(index)
@@ -81,7 +81,7 @@ def main():
             dockerfile = 'Dockerfile.out'
         elif func_name == 'pr':
             detailed_dir = 'unweighted'
-            dockerfile = 'Dockerfile.in'
+            dockerfile = 'Dockerfile.in.deg'
         elif func_name == 'cc':
             detailed_dir = 'undirected'
             dockerfile = 'Dockerfile.out'

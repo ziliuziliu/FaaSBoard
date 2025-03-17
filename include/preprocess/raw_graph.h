@@ -61,7 +61,7 @@ public:
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
-            weighted, false, false, meta.total_v, meta.total_v, meta.total_e
+            weighted, false, false, true, meta.total_v, meta.total_v, meta.total_e
         );
     }
 

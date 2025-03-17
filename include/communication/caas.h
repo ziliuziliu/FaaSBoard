@@ -223,6 +223,7 @@ public:
         std::string proxy_server_host;
         if (this -> config -> elastic_proxy) {
             VLOG(1) << "before get proxy ip from elasticache";
+            e_sdk -> connect();
             proxy_server_host = e_sdk -> get(std::to_string(this -> request_id));
             if (proxy_server_host == "") {
                 std::cout << "request " << this -> request_id << ": get proxy server address list from GlobalIPList" << std::endl;

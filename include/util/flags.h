@@ -30,6 +30,7 @@ DEFINE_bool(no_pipeline, false, "no in-exec_each-out-exec_diagonal pipeline");
 DEFINE_int32(partitions, 0, "how many functions to hold the graph");
 DEFINE_bool(sparse_only, false, "sparse mode");
 DEFINE_bool(dense_only, false, "dense mode");
+DEFINE_bool(need_global_degree, false, "need to read global degree");
 DEFINE_int32(save_mode, 1, "result save mode (0: no save, 1: local disk, 2: s3)");
 DEFINE_string(s3_bucket, "", "s3 bucket name");
 DEFINE_bool(undirected, false, "whether it's undirected graph (0: directed, 1: undirected)");
@@ -56,7 +57,7 @@ struct exec_config {
 
     uint32_t request_id, partition_id;
     std::string graph_dir, result_dir, s3_bucket;
-    bool no_pipeline, sparse_only, dense_only, dynamic_invoke;
+    bool no_pipeline, sparse_only, dense_only, dynamic_invoke, need_global_degree;
     int cores;
     CAAS_SAVE_MODE save_mode;
     json request;
@@ -73,13 +74,15 @@ struct exec_config {
     exec_config(
         uint32_t request_id, uint32_t partition_id, 
         std::string graph_dir, std::string result_dir, std::string s3_bucket, 
-        bool no_pipeline, bool sparse_only, bool dense_only, bool dynamic_invoke, int cores, CAAS_SAVE_MODE save_mode,
+        bool no_pipeline, bool sparse_only, bool dense_only, bool dynamic_invoke, bool need_global_degree,
+        int cores, CAAS_SAVE_MODE save_mode,
         std::string elasticache_host, std::string proxy_ip, 
         bool elastic_proxy, int kill_wait_ms,
         RUN_TYPE run_type
     ):request_id(request_id), partition_id(partition_id),
       graph_dir(graph_dir), result_dir(result_dir), s3_bucket(s3_bucket), 
       no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), dynamic_invoke(dynamic_invoke), 
+      need_global_degree(need_global_degree),
       cores(cores), save_mode(save_mode), elasticache_host(elasticache_host), proxy_ip(proxy_ip), 
       elastic_proxy(elastic_proxy), kill_wait_ms(kill_wait_ms), 
       run_type(run_type) {
@@ -98,7 +101,7 @@ struct exec_config {
         exec_config *config = new exec_config(
             FLAGS_request_id, FLAGS_partition_id,
             FLAGS_graph_dir, FLAGS_result_dir, FLAGS_s3_bucket, 
-            FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_dynamic_invoke, 
+            FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_dynamic_invoke, FLAGS_need_global_degree,
             FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_elasticache_host, FLAGS_proxy_ip, 
             FLAGS_elastic_proxy, FLAGS_kill_wait_ms,
             RUN_TYPE::LOCAL
@@ -117,7 +120,7 @@ struct exec_config {
         exec_config *config = new exec_config(
             request["request_id"], request["partition_id"],
             request["graph_dir"], request["result_dir"], s3_bucket, 
-            request["no_pipeline"], request["sparse_only"], request["dense_only"], request["dynamic_invoke"], 
+            request["no_pipeline"], request["sparse_only"], request["dense_only"], request["dynamic_invoke"], request["need_global_degree"],
             request["cores"], (CAAS_SAVE_MODE)request["save_mode"], elasticache_host, proxy_ip, 
             request["elastic_proxy"], kill_wait_ms,
             RUN_TYPE::LAMBDA
@@ -191,6 +194,9 @@ struct exec_config {
             }
             if (FLAGS_dense_only) {
                 reinvoke_command.append(" --dense-only ");
+            }
+            if (FLAGS_need_global_degree) {
+                reinvoke_command.append(" --need-global-degree ");
             }
             if (FLAGS_elastic_proxy) {
                 reinvoke_command.append(" --elastic-proxy ");

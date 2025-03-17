@@ -258,7 +258,6 @@ class elasticache_sdk {
             , host(_host)
             , port(_port)
             , isCluster(false) {
-            connect();
         }
     
         ~elasticache_sdk() {
