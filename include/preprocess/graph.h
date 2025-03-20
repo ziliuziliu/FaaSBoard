@@ -73,6 +73,10 @@ public:
         return false;
     }
 
+    bool root() {
+        return from_source == from_dest && to_source == to_dest;
+    }
+
     bool edge_is_in(uint32_t u, uint32_t v) {
         return u >= from_source && u < to_source && v >= from_dest && v < to_dest;
     }

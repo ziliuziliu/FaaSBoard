@@ -273,7 +273,7 @@ public:
         for (auto graphset : graphsets) {
             std::vector<graph<ewT> *> non_empty_graphs;
             for (auto graph : graphset -> graphs) {
-                if (graph -> edges > 0) {
+                if (graph -> edges > 0 || graph -> root()) {
                     non_empty_graphs.push_back(graph);
                 }
             }

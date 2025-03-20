@@ -21,6 +21,10 @@ struct partition_block {
       from_dest(from_dest), to_dest(to_dest), 
       edges(edges) {}
 
+
+    bool root() {
+        return from_source == from_dest && to_source == to_dest;
+    }
 };
 
 struct partition_result {

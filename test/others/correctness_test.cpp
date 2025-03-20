@@ -179,13 +179,11 @@ void check_error(uint32_t total_v, T *vec1, T *vec2, double error_rate) {
 
 template <typename T>
 void process_sssp(CAAS_SAVE_MODE save_mode) {
+    T* dis2 = read_result<T>(save_mode, FLAGS_result_dir, FLAGS_vertices);
     raw_graph<T> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
     g.read_txt(FLAGS_graph_file, FLAGS_undirected);
-
     T* dis1 = sssp<T>(&g, FLAGS_vertices, FLAGS_sssp_root);
-    T* dis2 = read_result<T>(save_mode, FLAGS_result_dir, FLAGS_vertices);
     check_equal<T>(FLAGS_vertices, dis1, dis2);
-
     delete[] dis1;
     delete[] dis2;
 }
@@ -227,10 +225,10 @@ int main(int argc, char *argv[]) {
         }
     } else if (FLAGS_application == "cc") {
         // only undirected graph
+        uint32_t *cc2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * 2);
         g.read_txt(FLAGS_graph_file, true);
         uint32_t *cc1 = cc(&g, FLAGS_vertices); 
-        uint32_t *cc2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         check_equal<uint32_t>(FLAGS_vertices, cc1, cc2);
     }
     VLOG(1) << "Freshness Check (<=30min) Passed";   

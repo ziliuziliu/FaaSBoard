@@ -260,6 +260,10 @@ public:
     }
 
     partition_result checkerboard_partition(int cut) {
+        if (cut == 1) {
+            std::vector<uint32_t> cuts = {0, meta.total_v};
+            return generate_checkerboard_partition_from_cuts(cut, cuts);
+        }
         timer t;
         t.tick("partition time");
         uint64_t left = 0, right = meta.total_e + meta.total_v * 2 * COMM_COMP_RATIO;
@@ -370,7 +374,9 @@ public:
     std::vector<graph_set<ewT> *> partition(partition_result result) {
         std::vector<graph<ewT> *> subgraphs;
         for (auto block: result.blocks){
-            if( block.edges != 0 ) subgraphs.push_back(new graph<ewT>(block, meta));
+            if (block.edges != 0 || block.root()) {
+                subgraphs.push_back(new graph<ewT>(block, meta));
+            }
         }
         #pragma omp parallel for
         for (int t = 0; t < (int)subgraphs.size(); t++) {
