@@ -1,35 +1,24 @@
 #!/bin/bash
+set -euo pipefail
 
-# Path to log file
 LOGFILE="script.log"
+TOTAL_RUNS=11
+INTERVAL=30  # Interval seconds
 
-# Total run times
-TOTAL_RUNS=21
+echo "Script will run $TOTAL_RUNS times, every $INTERVAL seconds."
+echo "Logging to $LOGFILE."
 
-# Make sure the script can be terminated
-echo "The script will run $TOTAL_RUNS times, every 30 seconds."
-echo "Logs will be recorded in $LOGFILE."
-
-# Loop to run the script
 for ((i=1; i<=TOTAL_RUNS; i++)); do
-    # Get current timestamp
     CURRENT_TIME=$(date +"%Y-%m-%d %H:%M:%S")
+    REQUEST_ID=$((RANDOM % 11))  # Random number between 0-10
 
-    # Generate a random request_id between 0 and 20
-    REQUEST_ID=$((i % 22))
+    echo "[$CURRENT_TIME] Run #$i: run.sh $REQUEST_ID" >> "$LOGFILE"
 
-    # Log the execution
-    echo "[$CURRENT_TIME] Run #$i: ../script/run.sh -mode aws -request_id=$REQUEST_ID" >> "$LOGFILE"
+    (cd ~/FaaSBoard/script && bash run.sh "$REQUEST_ID") >> "$LOGFILE" 2>&1
 
-    # Run the command and append output to the log file
-    (cd ../build && ./../script/run.sh -mode aws -request_id "$REQUEST_ID") >> "$LOGFILE" 2>&1
-
-    # Exit loop after all runs
-    if [ "$i" -eq "$TOTAL_RUNS" ]; then
-        echo "All $TOTAL_RUNS runs completed."
-        break
+    if [ "$i" -lt "$TOTAL_RUNS" ]; then
+        sleep "$INTERVAL"
     fi
-
-    # Wait for 60 min
-    sleep 6000
 done
+
+echo "All $TOTAL_RUNS runs completed." >> "$LOGFILE"
