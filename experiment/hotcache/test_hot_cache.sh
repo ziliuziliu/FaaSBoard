@@ -1,16 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
-LOGFILE="script.log"
 TOTAL_RUNS=11
-INTERVAL=30  # Interval seconds
+INTERVAL=600  # Interval seconds, example value
+
+# 创建基于间隔时间的日志目录
+LOG_DIR="$HOME/FaaSBoard/build/cachelog/$INTERVAL"
+mkdir -p "$LOG_DIR"
 
 echo "Script will run $TOTAL_RUNS times, every $INTERVAL seconds."
-echo "Logging to $LOGFILE."
+echo "Logging to $LOG_DIR."
 
 for ((i=1; i<=TOTAL_RUNS; i++)); do
     CURRENT_TIME=$(date +"%Y-%m-%d %H:%M:%S")
-    REQUEST_ID=$((RANDOM % 11))  # Random number between 0-10
+    REQUEST_ID=420  # Default ID
+
+    # 每次运行的日志文件名包含运行编号
+    LOGFILE="$LOG_DIR/script_run_$i.log"
 
     echo "[$CURRENT_TIME] Run #$i: run.sh $REQUEST_ID" >> "$LOGFILE"
 
