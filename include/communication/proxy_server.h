@@ -25,6 +25,7 @@
 #include <immintrin.h>
 #include <unordered_set>
 #include <condition_variable>
+#include <queue>
 
 #define MAX_CONNECTION 4096
 
@@ -229,6 +230,37 @@ std::mutex request_status_table_m;
 exec_config *config;
 lambda_sdk *l_sdk;
 
+struct alarm_event {
+
+    std::chrono::time_point<std::chrono::system_clock> wake_at;
+    segment_base *segment;
+    std::pair<char *, size_t> raw_data;
+    int client_fd, total_fds, round, prefix_len;
+
+    alarm_event() {}
+
+    alarm_event(
+        std::chrono::time_point<std::chrono::system_clock> wake_at,
+        segment_base *segment, std::pair<char *, size_t> raw_data, 
+        int client_fd, int total_fds, int round, int prefix_len
+    ) {
+        this -> wake_at = wake_at;
+        this -> segment = segment;
+        this -> raw_data = raw_data;
+        this -> client_fd = client_fd;
+        this -> total_fds = total_fds;
+        this -> round = round;
+        this -> prefix_len = prefix_len;
+    }
+
+};
+
+auto alarm_comp = [](const alarm_event *l, const alarm_event *r) {
+    return l -> wake_at > r -> wake_at;
+};
+std::priority_queue<alarm_event *, std::vector<alarm_event *>, decltype(alarm_comp)> alarm_queue(alarm_comp);
+std::mutex alarm_queue_m;
+
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
     if (root) {
         if (segment -> root_fd != -1) {
@@ -430,35 +462,19 @@ void work(int thread_id, int epoll_fd) {
                     int prefix_len = (5 + segment -> vec_len) << 2;
                     if (raw_data.second != (size_t)prefix_len) {
                         int total_fds = *(int *)(raw_data.first + prefix_len);
-                        std::thread wait_thread = std::thread(
-                            [](segment_base *segment, std::pair<char *, size_t> raw_data, int client_fd, int total_fds, int round, int prefix_len){
-                                std::this_thread::sleep_for(std::chrono::milliseconds(config -> kill_wait_ms));
-                                segment -> m.lock();
-                                if (round == segment -> round) {
-                                    std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
-                                    VLOG(1) << "decide to kill " << command;
-                                    segment -> reinvoke_commands.push_back(command);
-                                    segment -> m.unlock();
-                                    {
-                                        std::lock_guard<std::mutex> request_reinvoke_cnt_lg(request_reinvoke_m);
-                                        if (request_reinvoke_cnt.count(segment -> request_id) == 0) {
-                                            request_reinvoke_cnt[segment -> request_id] = 0;
-                                        }
-                                        request_reinvoke_cnt[segment -> request_id] += total_fds;
-                                    }
-                                    VLOG(1) << "send kill message to fd " << client_fd 
-                                        << " round " << round 
-                                        << " current round " << segment -> round
-                                        << " total fds " << total_fds;
-                                    uint32_t kill_msg = CAAS_KILL_MESSAGE;
-                                    caas_send_all(client_fd, (char *)&kill_msg, sizeof(uint32_t));
-                                } else {
-                                    segment -> m.unlock();
-                                }
-                            }, 
-                            segment, raw_data, client_fd, total_fds, segment -> round, prefix_len
+                        auto wake_at = std::chrono::system_clock::now() + std::chrono::milliseconds(config -> kill_wait_ms);
+                        // auto wake_at_t = std::chrono::system_clock::to_time_t(wake_at);
+                        // std::stringstream ss;
+                        // ss << std::put_time(std::localtime(&wake_at_t), "%Y-%m-%d %X");
+                        // auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(wake_at.time_since_epoch()) % 1000;
+                        // VLOG(1) << "alarm at " << ss.str() << "." << milliseconds.count();
+                        alarm_event *event = new alarm_event(
+                            wake_at, segment, raw_data, client_fd, total_fds, segment -> round, prefix_len
                         );
-                        wait_thread.detach();
+                        {
+                            std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
+                            alarm_queue.push(event);
+                        }
                     }
                 }
                 segment -> m.unlock();
@@ -467,6 +483,65 @@ void work(int thread_id, int epoll_fd) {
                 LOG(FATAL) << "undefined comm op " << (int)caas_flag_get_comm_op(flag);
         }
         cas<int>(&fd_in_queue[client_fd], 1, 0);
+    }
+}
+
+void spin() {
+    VLOG(1) << "running spinner";
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        auto now = std::chrono::system_clock::now();
+        for (;;) {
+            bool empty;
+            std::chrono::time_point<std::chrono::system_clock> wake_at;
+            {
+                std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
+                empty = alarm_queue.empty();
+                if (!empty) {
+                    wake_at = alarm_queue.top() -> wake_at;
+                    // auto wake_at_t = std::chrono::system_clock::to_time_t(wake_at);
+                    // std::stringstream ss;
+                    // ss << std::put_time(std::localtime(&wake_at_t), "%Y-%m-%d %X");
+                    // auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(wake_at.time_since_epoch()) % 1000;
+                    // VLOG(1) << "current top alarm " << ss.str() << "." << milliseconds.count();
+                }
+            }
+            if (empty || wake_at > now) {
+                break;
+            }
+            alarm_event *event;
+            {
+                std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
+                event = alarm_queue.top();
+                alarm_queue.pop();
+            }
+            segment_base *segment = event -> segment;
+            std::pair<char *, size_t> raw_data = event -> raw_data;
+            int client_fd = event -> client_fd, total_fds = event -> total_fds;
+            int round = event -> round, prefix_len = event -> prefix_len;
+            segment -> m.lock();
+            if (round == segment -> round) {
+                std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
+                VLOG(1) << "decide to kill " << command;
+                segment -> reinvoke_commands.push_back(command);
+                segment -> m.unlock();
+                {
+                    std::lock_guard<std::mutex> request_reinvoke_cnt_lg(request_reinvoke_m);
+                    if (request_reinvoke_cnt.count(segment -> request_id) == 0) {
+                        request_reinvoke_cnt[segment -> request_id] = 0;
+                    }
+                    request_reinvoke_cnt[segment -> request_id] += total_fds;
+                }
+                VLOG(1) << "send kill message to fd " << client_fd 
+                    << " round " << round 
+                    << " current round " << segment -> round
+                    << " total fds " << total_fds;
+                uint32_t kill_msg = CAAS_KILL_MESSAGE;
+                caas_send_all(client_fd, (char *)&kill_msg, sizeof(uint32_t));
+            } else {
+                segment -> m.unlock();
+            }
+        }
     }
 }
 
@@ -495,14 +570,17 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
-    VLOG(1) << "proxy server started";
-
-    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores];
-    for (int i = 0; i < (int)config -> cores; i++) {
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores - 1];
+    for (int i = 0; i < (int)config -> cores - 1; i++) {
         fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
         std::thread worker(work, i, epoll_fd);
         worker.detach();
     }
+    if (config -> dynamic_invoke) {
+        std::thread spinner(spin);
+        spinner.detach();
+    }
+    VLOG(1) << "proxy server started";
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         int num_events = epoll_wait(epoll_fd, events, MAX_CONNECTION, -1);
@@ -565,7 +643,7 @@ void run() {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
-                for (int i = 0; i < (int)config -> cores; i++) {
+                for (int i = 0; i < (int)config -> cores - 1; i++) {
                     if (thread_stuck[i]) {
                         continue;
                     }

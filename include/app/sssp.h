@@ -95,6 +95,7 @@ void sssp(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config
 
     graphs->connect(request_id, partition_id);
     graphs->begin(0);
+    bool kill = false;
 
     if (!config->no_pipeline) {
         for (int round = 1;; round++) {
@@ -104,6 +105,10 @@ void sssp(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config
                 t.from_tick();
             }
             if (activated == 0) {
+                break;
+            }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
                 break;
             }
             t.tick(info_prefix);
@@ -120,6 +125,10 @@ void sssp(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config
             if (activated == 0) {
                 break;
             }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
+                break;
+            }
             graphs->in(round);
             graphs->exec_each(round);
             graphs->out(round);
@@ -129,9 +138,11 @@ void sssp(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config
 
     graphs->disconnect();
     t.from_start("overall");
-    t.tick("save_result");
-    graphs->save_result(config->save_mode, config->graph_dir);
-    t.from_tick();
+    if (!kill) {
+        t.tick("save_result");
+        graphs->save_result(config->save_mode, config->graph_dir);
+        t.from_tick();
+    }
 }
 
 #endif

@@ -88,6 +88,7 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
 
     graphs->connect(request_id, partition_id);
     graphs->begin(0);
+    bool kill = false;
 
     if (!config->no_pipeline) {
         for (int round = 1;; round++) {
@@ -97,6 +98,10 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
                 t.from_tick();
             }
             if (activated == 0) {
+                break;
+            }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
                 break;
             }
             t.tick(info_prefix);
@@ -113,6 +118,10 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
             if (activated == 0) {
                 break;
             }
+            if (activated == CAAS_KILL_MESSAGE) {
+                kill = true;
+                break;
+            }
             graphs->in(round);
             graphs->exec_each(round);
             graphs->out(round);
@@ -120,11 +129,13 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
         }
     }
 
-    graphs->disconnect();
+    graphs -> disconnect();
     t.from_start("overall");
-    t.tick("save_result");
-    graphs->save_result(config->save_mode, config->graph_dir);
-    t.from_tick();
+    if (!kill) {
+        t.tick("save_result");
+        graphs->save_result(config->save_mode, config->graph_dir);
+        t.from_tick();
+    }
 }
 
 #endif

@@ -188,6 +188,7 @@ class proxy : public comm_object<T> {
 
 public:
 
+    std::string proxy_server_host;
     sockaddr_in proxy_server;
     int proxy_server_socket;
     elasticache_sdk *e_sdk;
@@ -220,7 +221,6 @@ public:
         // recv(meta_server_socket, &proxy_server, sizeof(sockaddr_in), 0);
         // close(meta_server_socket);
 
-        std::string proxy_server_host;
         if (this -> config -> elastic_proxy) {
             VLOG(1) << "before get proxy ip from elasticache";
             e_sdk -> connect();
@@ -311,7 +311,9 @@ public:
                     break;
                 }
                 case CAAS_OP::ALLREDUCE: {
-                    std::tuple<char *, size_t, bool> send_segment = caas_make_segment(this, piggyback_command, round, total_fds);
+                    std::tuple<char *, size_t, bool> send_segment = caas_make_segment(
+                        this, piggyback_command, round, total_fds, proxy_server_host
+                    );
                     caas_send_all(proxy_server_socket, std::get<0>(send_segment), std::get<1>(send_segment));
                     if (std::get<2>(send_segment)) {
                         delete [] std::get<0>(send_segment);
@@ -500,10 +502,10 @@ void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len
 }
 
 template <class T>
-std::tuple<char *, size_t, bool> caas_make_segment(comm_object<T> *object, bool piggyback_command, int round, int total_fds) {
+std::tuple<char *, size_t, bool> caas_make_segment(comm_object<T> *object, bool piggyback_command, int round, int total_fds, std::string proxy_server_host) {
     int data_len = (5 + object -> vec_len) << 2;
     if (piggyback_command) {
-        std::string command = object -> config -> build_reinvoke_command(round);
+        std::string command = object -> config -> build_reinvoke_command(round, proxy_server_host);
         char *msg = new char[data_len + 4 + command.length()];
         memcpy(msg, (char *)object -> data, data_len);
         *(int *)(msg + data_len) = total_fds;

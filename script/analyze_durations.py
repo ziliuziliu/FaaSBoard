@@ -9,20 +9,23 @@ def get_durations(graph, application, index):
     )
     events = resp['events']
     durations = []
+    cnt = 0
     for event in events:
         message = str(event['message'])
         if 'Duration' in message:
             duration = float(message.split('Duration: ')[1].split(' ms')[0])
+            cnt += 1
             durations.append(duration)
+
     return durations
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 3, 13, 6, 40, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 3, 19, 10, 23, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     
     all_durations = []
     
-    graph_name = 'twitter'
+    graph_name = 'rmat27'
     application = 'cc'
 
     if graph_name == 'livejournal':
@@ -46,10 +49,16 @@ if __name__ == '__main__':
         elif application == 'sssp' or application == 'cc':
             cmd_num = 17
 
+    cnt = 0
     for i in range(cmd_num):
         durations = get_durations(graph_name, application, i)
+        for duration in durations:
+            cnt += 1
+            print(f'duration = {duration}\n')
         all_durations.append(durations)
     
+    print(cnt)
+
     max_durations = []
     if all_durations:
         num_positions = len(all_durations[0])
