@@ -169,7 +169,7 @@ struct exec_config {
         }
     }
 
-    std::string build_reinvoke_command(int round, std::string proxy_server_host) {
+    std::string build_reinvoke_command(int round) {
         std::string app = get_app();
         reinvoke_command = "";
         reinvoke_command.reserve(256);
@@ -236,8 +236,6 @@ struct exec_config {
             reinvoke_command.append(request["function_name"]);
             reinvoke_command.append(" ");
             request["dynamic_invoke"] = true;
-            request["elastic_proxy"] = false;
-            request["proxy_ip"] = proxy_server_host;
             if (app == "pr") {
                 request["pr_iterations"] = pr_iterations - round + 1;
             } else if (app == "bfs"){

@@ -81,6 +81,7 @@ public:
         in_source = config -> sparse_only ? nullptr : new uint32_t[edges]();
         out_offset = config -> dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
         out_degree = config -> need_global_degree ? new uint32_t[to_source - from_source]() : nullptr;
+        // VLOG(1) << "need_global_degree = " << (int)config -> need_global_degree;
         out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
         if (weighted) {
             in_weight = config -> sparse_only ? nullptr : new ewT[edges]();

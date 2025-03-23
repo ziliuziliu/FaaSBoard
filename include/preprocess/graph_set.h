@@ -273,7 +273,7 @@ public:
         for (auto graphset : graphsets) {
             std::vector<graph<ewT> *> non_empty_graphs;
             for (auto graph : graphset -> graphs) {
-                if (graph -> edges > 0 || graph -> root()) {
+                if (graph -> edges > 0) {
                     non_empty_graphs.push_back(graph);
                 }
             }
@@ -304,18 +304,62 @@ public:
         fs::create_directory(root_dir);
         int *instances = new int[cuts.size() * 2 - 1](), *members = new int[cuts.size() * 2 - 1]();
         instances[0] = members[0] = (int)graphsets.size();
+        // recv_tree_id means the graph's id in the tree it belongs to rather than the id of tree.
+        int *recv_tree = new int[cuts.size()];
+        std::fill_n(recv_tree, (int)cuts.size(), 0);
+        int *send_tree = new int[cuts.size()];
+        std::fill_n(send_tree, (int)cuts.size(), 0);
+        int *recv_tree_id = new int[total_graph]();
+        int *send_tree_id = new int[total_graph]();
+        int graph_order;
         for (int i = 0; i < (int)cuts.size() - 1; i++) {
+            graph_order = 0;
+            VLOG(1) << "cut[i] = " << cuts[i];
             for (int j = 0; j < (int)graphsets.size(); j++) {
                 bool contain_object_in = false, contain_object_out = false;
+                bool recv_tree_flag = false, send_tree_flag = false;
+                bool has_root = false;
                 for (auto graph : graphsets[j] -> graphs) {
+                    if (cuts[i] >= graph -> from_source && cuts[i] < graph -> to_source && cuts[i] >= graph -> from_dest && cuts[i] < graph -> to_dest) {
+                        has_root = true;
+                    }
+                }
+                for (auto graph : graphsets[j] -> graphs) {
+                    bool flag_in = false, flag_out = false;
                     if (cuts[i] >= graph -> from_source && cuts[i] < graph -> to_source) {
                         contain_object_in = true;
+                        flag_in = true;
                         members[i + 1]++;
                     }
                     if (cuts[i] >= graph -> from_dest && cuts[i] < graph -> to_dest) {
                         contain_object_out = true;
+                        flag_out = true;
                         members[i + cuts.size()]++;
                     }
+                    if (has_root) {
+                        if (flag_in) {
+                            recv_tree_id[graph_order] = 0;
+                        }
+                        if (flag_out) {
+                            send_tree_id[graph_order] = 0;
+                        }
+                    } else {
+                        if (flag_in) {
+                            if (!recv_tree_flag) {
+                                recv_tree[i + 1]++;
+                                recv_tree_flag = true;                            
+                            }
+                            recv_tree_id[graph_order] = recv_tree[i + 1];
+                        }
+                        if (flag_out) {
+                            if (!send_tree_flag) {
+                                send_tree[i + 1]++;
+                                send_tree_flag = true;
+                            }
+                            send_tree_id[graph_order] = send_tree[i + 1];
+                        }
+                    }
+                    graph_order++;
                 }
                 if (contain_object_in) {
                     instances[i + 1]++;
@@ -325,6 +369,8 @@ public:
                 }
             }
         }
+
+        graph_order = 0;
         for (int i = 0; i < (int)graphsets.size(); i++) {
             VLOG(1) << "graphset " << std::to_string(i); 
             fs::create_directory(root_dir / std::to_string(i));
@@ -340,6 +386,9 @@ public:
                 graph_meta["from_dest"] = graph -> from_dest;
                 graph_meta["to_dest"] = graph -> to_dest;
                 graph_meta["edges"] = graph -> edges;
+                // recv_tree_id means the graph's id in the tree it belongs to rather than the id of tree,
+                graph_meta["recv_tree_id"] = recv_tree_id[graph_order];
+                graph_meta["send_tree_id"] = send_tree_id[graph_order];
                 comm_meta["comm_type"] = CAAS_COMM_MODE::PROXY;
                 comm_meta["recv"] = std::vector<json>();
                 for (int j = 0; j < (int)cuts.size() - 1; j++) {
@@ -394,6 +443,7 @@ public:
                 comm_meta["vote"]["members"] = members[0];
                 graph_meta["comm"] = comm_meta; 
                 graphs_meta["graphs"].push_back(graph_meta);
+                graph_order++;
             }
             std::ofstream graphs_meta_file(root_dir / std::to_string(i) / "graphs.meta");
             graphs_meta_file << std::string(graphs_meta.dump());

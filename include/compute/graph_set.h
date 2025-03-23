@@ -65,7 +65,7 @@ public:
             );
             #pragma omp critical 
             {
-                auto objects = make_comm_object(item["comm"], reduce_op, base_vertex_value, config);
+                auto objects = make_comm_object(item, reduce_op, base_vertex_value, config);
                 comm_object<vwT> *in_segment = std::get<0>(objects);
                 comm_object<vwT> *out_segment = std::get<1>(objects);
                 comm_object<uint32_t> *vote_object = std::get<2>(objects);
@@ -89,9 +89,13 @@ public:
     std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(
         json meta, CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config
     ) {
+        VLOG(1) << "make_comm_object";
         comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
-        CAAS_COMM_MODE comm_type = meta["comm_type"];
-        json recv = meta["recv"];
+        uint32_t recv_tree_id = meta["recv_tree_id"];
+        uint32_t send_tree_id = meta["send_tree_id"];
+        json meta_comm = meta["comm"];
+        CAAS_COMM_MODE comm_type = meta_comm["comm_type"];
+        json recv = meta_comm["recv"];
         CHECK(recv.size() == 1) << "have to be just 1 in segment";
         for (int i = 0; i < (int)recv.size(); i++) {
             json item = recv[i];
@@ -100,7 +104,7 @@ public:
             uint32_t object_id = item["object_id"];
             if (!in_segments.count(object_id)) {
                 in_segments[object_id] = caas_make_comm_object<vwT>(
-                    comm_type, item["object_id"], end - start, true, start, 
+                    comm_type, item["object_id"], recv_tree_id, end - start, true, start, 
                     item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_BROADCAST, reduce_op,
                     base_vertex_value, config
                 );
@@ -111,7 +115,7 @@ public:
                 in_segment -> update_root();
             }
         }
-        json send = meta["send"];
+        json send = meta_comm["send"];
         CHECK(send.size() == 1) << "have to be just 1 out segment";
         for (int i = 0; i < (int)send.size(); i++) {
             json item = send[i];
@@ -120,7 +124,7 @@ public:
             uint32_t object_id = item["object_id"];
             if (!out_segments.count(object_id)) {
                 out_segments[object_id] = caas_make_comm_object<vwT>(
-                    comm_type, item["object_id"], end - start, true, start, 
+                    comm_type, item["object_id"], send_tree_id, end - start, true, start, 
                     item["root"], item["instances"], item["members"], data_type, CAAS_OP::MASKED_REDUCE, reduce_op,
                     base_vertex_value, config
                 );
@@ -131,14 +135,16 @@ public:
                 out_segment -> update_root();
             }
         }
-        json vote_meta = meta["vote"];
+        json vote_meta = meta_comm["vote"];
         if (vote_object == nullptr) {
             vote_object = caas_make_comm_object<uint32_t>(
-                comm_type, vote_meta["object_id"], 1, false, 0, 
+                comm_type, vote_meta["object_id"], 0, // this 0 is just a placeholder
+                1, false, 0, 
                 false, vote_meta["instances"], vote_meta["members"], CAAS_TYPE::UINT32, CAAS_OP::ALLREDUCE, CAAS_REDUCE_OP::ADD,
                 0, config
             );
         }
+
         return std::make_tuple(in_segment, out_segment, vote_object);
     }
 
@@ -207,6 +213,7 @@ public:
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " vertex initialize";
             graphs[i] -> begin(round, i);
+            VLOG(1) << "graph " << i << " vertex initialize over";
         }
     }
 
@@ -318,8 +325,7 @@ public:
 
     uint32_t vote(int round) {
         VLOG(1) << "vote";
-        uint32_t msg = vote_object -> caas_do(
-            config -> dynamic_invoke && !stateful && round != 1, 
+        uint32_t msg = vote_object -> caas_do( 
             round, 
             in_segments.size() + out_segments.size() + 1
         );

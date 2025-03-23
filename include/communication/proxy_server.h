@@ -25,13 +25,83 @@
 #include <immintrin.h>
 #include <unordered_set>
 #include <condition_variable>
-#include <queue>
 
 #define MAX_CONNECTION 4096
 
 uint64_t combine(uint32_t a, uint32_t b) {
     return (uint64_t)a << 32 | b;
 }
+
+struct binomial_node {
+    uint32_t object_id; // represent the index of the tree
+    uint32_t tree_id; // represent the index of the node on the tree
+    bool operator==(const binomial_node& other) const {
+        return object_id == other.object_id && tree_id == other.tree_id;
+    }
+};
+
+struct binomial_node_hash {
+    std::size_t operator()(const binomial_node& node) const {
+        return std::hash<uint32_t>()(node.object_id) ^ (std::hash<uint32_t>()(node.tree_id) << 1);
+    }
+};
+
+class BinomialNodeMap {
+    private:
+        std::unordered_map<binomial_node, int, binomial_node_hash> fd_map;
+    
+    public:
+        // Print all elements in the map
+        void print_all() const {
+            VLOG(1) << "BinomialNodeMap contents:";
+            for (const auto& pair : fd_map) {
+                VLOG(1) << "Node: (object_id=" << pair.first.object_id
+                      << ", tree_id=" << pair.first.tree_id
+                      << "), FD: " << pair.second;
+            }
+        }
+
+
+        // bind fd to (object_id, tree_id)
+        void bind_fd(uint32_t object_id, uint32_t tree_id, int fd) {
+            binomial_node node = {object_id, tree_id};
+            fd_map[node] = fd;
+        }
+    
+        // get fd by (object_id, tree_id)
+        int get_fd(uint32_t object_id, uint32_t tree_id) const {
+            binomial_node node = {object_id, tree_id};
+            auto it = fd_map.find(node);
+            if (it != fd_map.end()) {
+                return it -> second;
+            } else {
+                return -1;
+            }
+        }
+    
+        void unbind_fd(uint32_t object_id, uint32_t tree_id) {
+            binomial_node node = {object_id, tree_id};
+            fd_map.erase(node);
+        }
+
+        // find and remove node by fd
+        void find_and_remove_by_fd(int fd) {
+            for (auto it = fd_map.begin(); it != fd_map.end(); ) {
+                if (it -> second == fd) {
+                    it = fd_map.erase(it);
+                    return; 
+                } else {
+                    ++it;
+                }
+            }
+            return;
+        }
+    
+        void clear() {
+            fd_map.clear();
+        }
+};
+
 
 class segment_base {
     
@@ -48,7 +118,6 @@ public:
     uint8_t instances;
     __m256i base_vertex_value_m256;
     bool initialized;
-    std::vector<std::string> reinvoke_commands;
 
     segment_base() {}
 
@@ -63,12 +132,11 @@ public:
         this -> reduce_cnt = 0;
         this -> bitmap_len = has_bitmap ? bitmap::get_bitmap_length_bits(vec_len) >> 5 : 0;
         this -> vec_len = vec_len;
-        this -> data = new uint32_t[5 + bitmap_len + vec_len];
-        this -> bm = has_bitmap ? new bitmap(vec_len, data + 5) : nullptr;
+        this -> data = new uint32_t[7 + bitmap_len + vec_len];
+        this -> bm = has_bitmap ? new bitmap(vec_len, data + 7) : nullptr;
         this -> base_vertex_value = base_vertex_value;
         this -> base_vertex_value_m256 = _mm256_set1_epi32(base_vertex_value);
         this -> initialized = false;
-        this -> reinvoke_commands = std::vector<std::string>();
         reset();
     }
 
@@ -83,14 +151,15 @@ public:
         }
         int i;
         for (i = 0; i + 8 < vec_len; i += 8) {
-            _mm256_storeu_si256((__m256i*)&data[5 + bitmap_len + i], base_vertex_value_m256);
+            _mm256_storeu_si256((__m256i*)&data[7 + bitmap_len + i], base_vertex_value_m256);
         }
         for (; i < vec_len; i++) {
-            data[5 + bitmap_len + i] = base_vertex_value;
+            data[7 + bitmap_len + i] = base_vertex_value;
         }
     }
 
     bool all_connected() {
+        VLOG(1) << "all_connected:: intances = " << int(instances) << "; fds.size() = " << fds.size() << "; root_fd = " << root_fd; 
         return instances == fds.size() + (root_fd != -1);
     }
 
@@ -99,110 +168,12 @@ public:
     }
 
     void initialize(uint32_t *header) {
-        memcpy(data, header, 20);
+        memcpy(data, header, 28);
         initialized = true;
     }
 
-    std::pair<char *, size_t> make_adaptive_segment(COMM_TYPE segment_type) {
-        // Set segment type
-        caas_segment_set_segment_type(data + 4, segment_type);
-
-        switch(segment_type) {
-            case COMM_TYPE::CAAS_MAGIC: {
-                uint32_t seg_pairs_len = 5;
-                uint32_t *seg_pairs = new uint32_t[seg_pairs_len];
-                memcpy(seg_pairs, data, 20); // 20 is the size of the first 5 elements
-                return {(char *)seg_pairs, 5 << 2};
-            }
-
-            case COMM_TYPE::CAAS_PAIR: {
-                // Construct sparse segment with only index-value pairs whose value is not zero
-                uint32_t segment_len = 5 + bm -> get_size() * 2;
-                uint32_t *segment = new uint32_t[segment_len];
-                memcpy(segment, data, 20);
-                uint32_t pos = 5;
-                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
-                for (;;) {
-                    uint32_t index = it -> next();
-                    if (index == 0xffffffff) {
-                        break;
-                    }
-                    segment[pos] = index;
-                    segment[pos + 1] = data[5 + bitmap_len + index];
-                    pos += 2;
-                }
-                return {(char *)segment, pos << 2};
-            }
-
-            case COMM_TYPE::CAAS_SPARSE: {
-                uint32_t segment_len = 5 + bitmap_len + bm -> get_size();
-                uint32_t *segment = new uint32_t[segment_len];
-                uint32_t pos = 5 + bitmap_len;
-                memcpy(segment, data, 20 + (bitmap_len << 2));
-                bitmap_iterator *it = new bitmap_iterator(bm, vec_len);
-                for (;;) {
-                    uint32_t index = it -> next();
-                    if (index == 0xffffffff) {
-                        break;
-                    }
-                    segment[pos] = data[5 + bitmap_len + index];
-                    pos++;
-                }
-                return {(char *)segment, segment_len << 2};
-            }
-
-            case COMM_TYPE::CAAS_DENSE: {
-                return {(char *)data, (5 + bitmap_len + vec_len) << 2};
-            }
-
-            default: {
-                LOG(FATAL) << "undefined segment type " << (int)segment_type;
-            }
-        }
-    }
-
-    void reduce_adaptive_segment(char *raw_data, size_t len) {
-        uint32_t *segment = (uint32_t *)raw_data;
-        uint32_t bitmap_len = segment[2], vec_len = segment[3], flag = segment[4];
-        COMM_TYPE segment_type = caas_segment_get_segment_type(flag);
-        CAAS_TYPE data_type = caas_flag_get_data_type(flag);
-        CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(flag);
-
-        switch(segment_type) {
-            case COMM_TYPE::CAAS_MAGIC: {
-                return;
-            }
-
-            case COMM_TYPE::CAAS_PAIR: {
-                VLOG(1) << "reduce sparse pair";
-                reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
-                break;
-            }
-
-            case COMM_TYPE::CAAS_SPARSE: {
-                VLOG(1) << "reduce sparse";
-                bitmap *segment_bm = new bitmap(vec_len, segment + 5);
-                reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
-                break;
-            }
-
-            case COMM_TYPE::CAAS_DENSE: {
-                VLOG(1) << "reduce dense";
-                {
-                    std::lock_guard<std::mutex> reduce_lg(reduce_adaptive_segment_m);
-                    reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
-                }
-                break;
-            }
-
-            default: {
-                LOG(FATAL) << "undefined segment type " << (int)segment_type;
-            }
-        }
-    }
-
     std::pair<char *, size_t> make_segment() {
-        return {(char *)data, (5 + vec_len) << 2};
+        return {(char *)data, (7 + vec_len) << 2};
     }
 
     void reduce_segment(char *raw_data, size_t len) {
@@ -210,7 +181,7 @@ public:
         uint32_t vec_len = segment[3], flag = segment[4];
         CAAS_TYPE data_type = caas_flag_get_data_type(flag);
         CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(flag);
-        reduce_vec(data + 5, segment + 5, vec_len, reduce_op, data_type);
+        reduce_vec(data + 7, segment + 7, vec_len, reduce_op, data_type);
     }
 
 };
@@ -222,44 +193,10 @@ std::unordered_map<int, segment_base *> fd_segment;
 std::mutex fd_segment_m;
 std::unordered_map<uint64_t, segment_base *> segment_table;
 std::mutex segment_table_m;
-std::unordered_map<uint32_t, int> request_reinvoke_cnt;
-std::condition_variable request_reinvoke_cv;
-std::mutex request_reinvoke_m;
 std::unordered_map<uint32_t, REQUEST_EXECUTION_STATUS> request_status_table;
 std::mutex request_status_table_m;
 exec_config *config;
-lambda_sdk *l_sdk;
-
-struct alarm_event {
-
-    std::chrono::time_point<std::chrono::system_clock> wake_at;
-    segment_base *segment;
-    std::pair<char *, size_t> raw_data;
-    int client_fd, total_fds, round, prefix_len;
-
-    alarm_event() {}
-
-    alarm_event(
-        std::chrono::time_point<std::chrono::system_clock> wake_at,
-        segment_base *segment, std::pair<char *, size_t> raw_data, 
-        int client_fd, int total_fds, int round, int prefix_len
-    ) {
-        this -> wake_at = wake_at;
-        this -> segment = segment;
-        this -> raw_data = raw_data;
-        this -> client_fd = client_fd;
-        this -> total_fds = total_fds;
-        this -> round = round;
-        this -> prefix_len = prefix_len;
-    }
-
-};
-
-auto alarm_comp = [](const alarm_event *l, const alarm_event *r) {
-    return l -> wake_at > r -> wake_at;
-};
-std::priority_queue<alarm_event *, std::vector<alarm_event *>, decltype(alarm_comp)> alarm_queue(alarm_comp);
-std::mutex alarm_queue_m;
+BinomialNodeMap node_map;
 
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
     if (root) {
@@ -312,30 +249,20 @@ void work(int thread_id, int epoll_fd) {
             VLOG(1) << "fd " << client_fd << " closed";
             epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
             close(client_fd);
+
             {
                 std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
                 fd_segment.erase(client_fd);
-            }
-            int now_reinvoke_cnt = -1;
-            {
-                std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
-                request_reinvoke_cnt[segment -> request_id]--;
-                now_reinvoke_cnt = request_reinvoke_cnt[segment -> request_id];
-            }
-            if (now_reinvoke_cnt == 0) {
-                request_reinvoke_cv.notify_all();
+                node_map.find_and_remove_by_fd(client_fd);
             }
             segment -> m.lock();
             remove_fd_from_segment(client_fd, segment);
             segment -> m.unlock();
+
             if (segment -> none_connected()) {
                 {
                     std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
                     request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::INIT;
-                }
-                {
-                    std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
-                    request_reinvoke_cnt.erase(segment -> request_id);
                 }
                 {
                     std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
@@ -347,47 +274,75 @@ void work(int thread_id, int epoll_fd) {
             cas<int>(&fd_in_queue[client_fd], 1, 0);
             continue;
         }
+
         uint32_t *data = (uint32_t *)raw_data.first;
-        uint32_t request_id = data[0], object_id = data[1], flag = data[4];
-        std::vector<int> fd_list;
+        uint32_t request_id = data[0], object_id = data[1], flag = data[4], from_id = data[5], to_id = data[6];
+        // VLOG(1) << "raw_data:: " 
+        //             << "request_id = " << data[0]
+        //             << "; object_id = " << data[1]
+        //             << "; bitmap_len = " << data[2]
+        //             << "; vec_len = " << data[3]
+        //             << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
+        //             << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
+        //             << "; from_id = " << data[5]
+        //             << "; to_id = " << data[6]
+        //             << "; client_fd = " << client_fd;
+
         switch (caas_flag_get_comm_op(flag)) {
-            case CAAS_OP::MASKED_BROADCAST:
-                VLOG(1) << "masked broadcast from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
-                fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
-                #pragma omp parallel for
-                for (int i = 0; i < (int)fd_list.size(); i++) {
-                    caas_send_all(fd_list[i], raw_data.first, raw_data.second);
-                }
+            case CAAS_OP::MASKED_BROADCAST: {
+                int to_fd  = node_map.get_fd(object_id, to_id);
+                // VLOG(1) << "masked_broadcast::trans from request " << request_id 
+                //             << " object " << object_id
+                //             << " from_id " << from_id
+                //             << " to_id " << to_id
+                //             << " client_fd " << client_fd;
+                caas_send_all(to_fd, raw_data.first, raw_data.second);
                 delete [] raw_data.first;
                 break;
-            case CAAS_OP::MASKED_REDUCE:
-                VLOG(1) << "masked reduce from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
-                segment -> m.lock();
-                if (!segment -> initialized) {
-                    segment -> initialize((uint32_t *)raw_data.first);
-                }
-                segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
-                segment -> reduce_cnt++;
-                if (segment -> reduce_cnt == (int)segment -> instances - 1) {
-                    COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size());
-                    std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
-                    caas_send_all(segment -> root_fd, new_data.first, new_data.second);
-                    if (segment_type != COMM_TYPE::CAAS_DENSE) {
-                        delete [] new_data.first;
-                    }
-                    segment -> reset();
-                }
-                segment -> m.unlock();
+            }
+
+            case CAAS_OP::MASKED_REDUCE: {
+                int to_fd  = node_map.get_fd(object_id, to_id);
+                // VLOG(1) << "masked_reduce::trans from request " << request_id 
+                //             << " object " << object_id
+                //             << " from_id " << from_id
+                //             << " to_id " << to_id
+                //             << " client_fd " << client_fd;
+                VLOG(1) << "masked_reduce:: " 
+                    << "request_id = " << data[0]
+                    << "; object_id = " << data[1]
+                    << "; bitmap_len = " << data[2]
+                    << "; vec_len = " << data[3]
+                    << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
+                    << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
+                    << "; from_id = " << data[5]
+                    << "; to_id = " << data[6]
+                    << "; client_fd = " << client_fd
+                    << "; to_fd = " << to_fd
+                    << "send:: len = " << raw_data.second;
+                caas_send_all(to_fd, raw_data.first, raw_data.second);
                 delete [] raw_data.first;
                 break;
+            }
+
             case CAAS_OP::ALLREDUCE:
-                VLOG(1) << "all reduce from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
+                // VLOG(1) << "all reduce from request " << request_id 
+                //             << " object " << object_id
+                //             << " from_id " << from_id
+                //             << " to_id " << to_id
+                //             << " client_fd " << client_fd;
+                VLOG(1) << "all_reduce:: " 
+                    << "request_id = " << data[0]
+                    << "; object_id = " << data[1]
+                    << "; bitmap_len = " << data[2]
+                    << "; vec_len = " << data[3]
+                    << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
+                    << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
+                    << "; from_id = " << data[5]
+                    << "; to_id = " << data[6]
+                    << "; client_fd = " << client_fd
+                    // << "; to_fd = " << to_fd;
+                    << "all_len = " << raw_data.second;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
@@ -397,151 +352,30 @@ void work(int thread_id, int epoll_fd) {
                 if (segment -> reduce_cnt == (int)segment -> instances) {
                     segment -> round++;
                     VLOG(1) << "now we have enough instances, reduce_cnt " << segment -> reduce_cnt;
-                    if (config -> dynamic_invoke && !segment -> reinvoke_commands.empty()) {
-                        segment -> m.unlock();
-                        VLOG(1) << "wait for " << (int)segment -> reinvoke_commands.size() << " to terminate";
-                        cas<int>(&thread_stuck[thread_id], 0, 1);
-                        {
-                            std::unique_lock<std::mutex> request_reinvoke_ul(request_reinvoke_m);
-                            request_reinvoke_cv.wait(request_reinvoke_ul, [segment](){
-                                return request_reinvoke_cnt[segment -> request_id] == 0;
-                            });
-                        }
-                        cas<int>(&thread_stuck[thread_id], 1, 0);
-                        segment -> m.lock();
-                        VLOG(1) << "have " << (int)segment -> reinvoke_commands.size() << " to invoke";
-                        segment -> reduce_cnt -= segment -> reinvoke_commands.size();
-                        {
-                            std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
-                            request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::REINVOKE;
-                        }
-                        for (int i = 0; i < (int)segment -> reinvoke_commands.size(); i++) {
-                            std::string command = segment -> reinvoke_commands[i];
-                            std::thread([command](){
-                                VLOG(1) << "reinvoking: " << command;
-                                if (command.substr(0, 4) == "sudo") {
-                                    try {
-                                        int result = system(command.c_str());
-                                        if (result != 0) {
-                                            LOG(FATAL) << "reinvoke " << command << " failed";
-                                        }
-                                    } catch (const std::exception &e) {
-                                        LOG(FATAL) << "reinvoke " << command << " failed: " << e.what();
-                                    }
-                                } else if (command.substr(0, 3) == "aws") {
-                                    std::istringstream iss(command.substr(4));
-                                    std::string function_name;
-                                    iss >> function_name;
-                                    std::string payload = command.substr(5 + function_name.length());
-                                    l_sdk -> invoke(function_name, payload);
-                                } else {
-                                    LOG(FATAL) << "reinvoke command not implemented";
-                                }
-                            }).detach();
-                        }
-                        segment -> reinvoke_commands.clear();
-                    } else {
-                        if (!segment -> all_connected()) {
-                            LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
-                        }
-                        {
-                            std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
-                            request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::EXECUTE;
-                        }
-                        std::pair<char *, size_t> new_data = segment -> make_segment();
-                        fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
-                        #pragma omp parallel for
-                        for (int i = 0; i < (int)fd_list.size(); i++) {
-                            caas_send_all(fd_list[i], new_data.first, new_data.second);
-                        }
-                        segment -> reset();
+                    if (!segment -> all_connected()) {
+                        LOG(FATAL) << "request " << request_id << " object " << object_id << " not all connected";
                     }
-                } else if (config -> dynamic_invoke) {
-                    VLOG(1) << "current round " << segment -> round 
-                        << " reduce_cnt " << segment -> reduce_cnt;
-                    int prefix_len = (5 + segment -> vec_len) << 2;
-                    if (raw_data.second != (size_t)prefix_len) {
-                        int total_fds = *(int *)(raw_data.first + prefix_len);
-                        auto wake_at = std::chrono::system_clock::now() + std::chrono::milliseconds(config -> kill_wait_ms);
-                        // auto wake_at_t = std::chrono::system_clock::to_time_t(wake_at);
-                        // std::stringstream ss;
-                        // ss << std::put_time(std::localtime(&wake_at_t), "%Y-%m-%d %X");
-                        // auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(wake_at.time_since_epoch()) % 1000;
-                        // VLOG(1) << "alarm at " << ss.str() << "." << milliseconds.count();
-                        alarm_event *event = new alarm_event(
-                            wake_at, segment, raw_data, client_fd, total_fds, segment -> round, prefix_len
-                        );
-                        {
-                            std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
-                            alarm_queue.push(event);
-                        }
+                    {
+                        std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                        request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::EXECUTE;
                     }
+                    std::pair<char *, size_t> new_data = segment -> make_segment();
+                    std::vector<int> fd_list;
+                    fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
+                    #pragma omp parallel for
+                    for (int i = 0; i < (int)fd_list.size(); i++) {
+                        VLOG(1) << "all_reduce:: send to_fd = " << fd_list[i] << "; len = " << new_data.second;
+                        caas_send_all(fd_list[i], new_data.first, new_data.second);
+                    }
+                    segment -> reset();
                 }
                 segment -> m.unlock();
                 break;
+
             default:
                 LOG(FATAL) << "undefined comm op " << (int)caas_flag_get_comm_op(flag);
         }
         cas<int>(&fd_in_queue[client_fd], 1, 0);
-    }
-}
-
-void spin() {
-    VLOG(1) << "running spinner";
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        auto now = std::chrono::system_clock::now();
-        for (;;) {
-            bool empty;
-            std::chrono::time_point<std::chrono::system_clock> wake_at;
-            {
-                std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
-                empty = alarm_queue.empty();
-                if (!empty) {
-                    wake_at = alarm_queue.top() -> wake_at;
-                    // auto wake_at_t = std::chrono::system_clock::to_time_t(wake_at);
-                    // std::stringstream ss;
-                    // ss << std::put_time(std::localtime(&wake_at_t), "%Y-%m-%d %X");
-                    // auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(wake_at.time_since_epoch()) % 1000;
-                    // VLOG(1) << "current top alarm " << ss.str() << "." << milliseconds.count();
-                }
-            }
-            if (empty || wake_at > now) {
-                break;
-            }
-            alarm_event *event;
-            {
-                std::lock_guard<std::mutex> alarm_queue_lg(alarm_queue_m);
-                event = alarm_queue.top();
-                alarm_queue.pop();
-            }
-            segment_base *segment = event -> segment;
-            std::pair<char *, size_t> raw_data = event -> raw_data;
-            int client_fd = event -> client_fd, total_fds = event -> total_fds;
-            int round = event -> round, prefix_len = event -> prefix_len;
-            segment -> m.lock();
-            if (round == segment -> round) {
-                std::string command = std::string(raw_data.first + prefix_len + 4, raw_data.second - prefix_len - 4);
-                VLOG(1) << "decide to kill " << command;
-                segment -> reinvoke_commands.push_back(command);
-                segment -> m.unlock();
-                {
-                    std::lock_guard<std::mutex> request_reinvoke_cnt_lg(request_reinvoke_m);
-                    if (request_reinvoke_cnt.count(segment -> request_id) == 0) {
-                        request_reinvoke_cnt[segment -> request_id] = 0;
-                    }
-                    request_reinvoke_cnt[segment -> request_id] += total_fds;
-                }
-                VLOG(1) << "send kill message to fd " << client_fd 
-                    << " round " << round 
-                    << " current round " << segment -> round
-                    << " total fds " << total_fds;
-                uint32_t kill_msg = CAAS_KILL_MESSAGE;
-                caas_send_all(client_fd, (char *)&kill_msg, sizeof(uint32_t));
-            } else {
-                segment -> m.unlock();
-            }
-        }
     }
 }
 
@@ -550,10 +384,6 @@ void run() {
     VLOG(1) << "aws sdk init";
     if (config -> enable_sdk()) {
         sdk_init();
-    }
-    if (config -> enable_lambda_sdk()) {
-        l_sdk = new lambda_sdk();
-        VLOG(1) << "dynamic invoke enabled";
     }
     VLOG(1) << "proxy running on " << config -> cores << " cores";
 
@@ -570,17 +400,14 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
-    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores - 1];
-    for (int i = 0; i < (int)config -> cores - 1; i++) {
+    VLOG(1) << "proxy server started";
+
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores];
+    for (int i = 0; i < (int)config -> cores; i++) {
         fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
         std::thread worker(work, i, epoll_fd);
         worker.detach();
     }
-    if (config -> dynamic_invoke) {
-        std::thread spinner(spin);
-        spinner.detach();
-    }
-    VLOG(1) << "proxy server started";
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         int num_events = epoll_wait(epoll_fd, events, MAX_CONNECTION, -1);
@@ -593,17 +420,22 @@ void run() {
                 event.data.fd = client_fd;
                 epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event);
                 fd_in_queue[client_fd] = 0;
-                uint32_t connect_data[7];
-                recv(client_fd, connect_data, sizeof(uint32_t) * 7, 0);
-                uint32_t request_id = connect_data[0], partition_id = connect_data[1], object_id = connect_data[2];
-                uint32_t vec_len = connect_data[3], base_vertex_value = connect_data[4];
-                uint32_t flag = connect_data[5];
-                bool has_bitmap = connect_data[6];
+                uint32_t connect_data[8];
+                recv(client_fd, connect_data, sizeof(uint32_t) * 8, 0);
+                uint32_t request_id = connect_data[0], partition_id = connect_data[1], object_id = connect_data[2], tree_id = connect_data[3];
+                uint32_t vec_len = connect_data[4], base_vertex_value = connect_data[5];
+                uint32_t flag = connect_data[6];
+                if (vec_len == 1) {
+                    VLOG(1) << "vec_len = 1 :: root = " << (int)caas_flag_get_root(flag);
+                }
+                bool has_bitmap = connect_data[7];
                 VLOG(1) << "connection from request " << request_id 
                     << " partition " << partition_id
                     << " object " << object_id 
+                    << " tree_id " << tree_id
                     << " vec_len " << vec_len
                     << " assigned fd " << client_fd;
+                
                 REQUEST_EXECUTION_STATUS status;
                 {
                     std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
@@ -617,6 +449,7 @@ void run() {
                     close(client_fd);
                     continue;
                 }
+
                 segment_base *segment;
                 {
                     std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
@@ -633,6 +466,7 @@ void run() {
                     std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
                     fd_segment[client_fd] = segment;
                 }
+                node_map.bind_fd(object_id, tree_id, client_fd);  
             } else if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
                 LOG(FATAL) << "fd " << events[i].data.fd << " epollhup";
             } else if (events[i].events & EPOLLERR) {
@@ -643,7 +477,7 @@ void run() {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
-                for (int i = 0; i < (int)config -> cores - 1; i++) {
+                for (int i = 0; i < (int)config -> cores; i++) {
                     if (thread_stuck[i]) {
                         continue;
                     }
