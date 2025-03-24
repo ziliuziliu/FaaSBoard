@@ -27,6 +27,8 @@
 #include <condition_variable>
 
 #define MAX_CONNECTION 4096
+#define MAX_RETRIES 100
+#define RETRIE_WAIT 100
 
 uint64_t combine(uint32_t a, uint32_t b) {
     return (uint64_t)a << 32 | b;
@@ -197,6 +199,8 @@ std::unordered_map<uint32_t, REQUEST_EXECUTION_STATUS> request_status_table;
 std::mutex request_status_table_m;
 exec_config *config;
 BinomialNodeMap node_map;
+std::unordered_map<int, bool> fd_send_status;
+std::mutex fd_send_status_m;
 
 void add_fd_to_segment(int fd, bool root, segment_base *segment) {
     if (root) {
@@ -228,6 +232,34 @@ void remove_fd_from_segment(int fd, segment_base *segment) {
     VLOG(1) << "object id " << segment -> object_id
         << " remove fd " << fd 
         << " current fds " << (int)segment -> fds.size();
+}
+
+void proxy_send_all(int to_fd, char *data, size_t len) {
+    if (to_fd < 0 || data == nullptr) {
+        LOG(FATAL) << "proxy_send_all error";
+    }
+
+    for (int i = 0; i < MAX_RETRIES; i++) {
+        {
+            std::lock_guard<std::mutex> lock(fd_send_status_m);
+            if (!fd_send_status[to_fd]) {
+                fd_send_status[to_fd] = true;
+                VLOG(1) << "to_fd: " << to_fd << " is now busy";
+                break;
+            } else {
+                VLOG(1) << "to_fd: " << to_fd << " is busy, retrying after " << RETRIE_WAIT << " ms";
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(RETRIE_WAIT));
+    }
+
+    caas_send_all(to_fd, data, len);
+    
+    {
+        std::lock_guard<std::mutex> lock(fd_send_status_m);
+        fd_send_status[to_fd] = false;
+        VLOG(1) << "to_fd: " << to_fd << " is now free";
+    }
 }
 
 void work(int thread_id, int epoll_fd) {
@@ -276,73 +308,24 @@ void work(int thread_id, int epoll_fd) {
         }
 
         uint32_t *data = (uint32_t *)raw_data.first;
-        uint32_t request_id = data[0], object_id = data[1], flag = data[4], from_id = data[5], to_id = data[6];
-        // VLOG(1) << "raw_data:: " 
-        //             << "request_id = " << data[0]
-        //             << "; object_id = " << data[1]
-        //             << "; bitmap_len = " << data[2]
-        //             << "; vec_len = " << data[3]
-        //             << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
-        //             << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
-        //             << "; from_id = " << data[5]
-        //             << "; to_id = " << data[6]
-        //             << "; client_fd = " << client_fd;
+        uint32_t request_id = data[0], object_id = data[1], flag = data[4], to_id = data[6];
 
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_OP::MASKED_BROADCAST: {
                 int to_fd  = node_map.get_fd(object_id, to_id);
-                // VLOG(1) << "masked_broadcast::trans from request " << request_id 
-                //             << " object " << object_id
-                //             << " from_id " << from_id
-                //             << " to_id " << to_id
-                //             << " client_fd " << client_fd;
-                caas_send_all(to_fd, raw_data.first, raw_data.second);
+                proxy_send_all(to_fd, raw_data.first, raw_data.second);
                 delete [] raw_data.first;
                 break;
             }
 
             case CAAS_OP::MASKED_REDUCE: {
                 int to_fd  = node_map.get_fd(object_id, to_id);
-                // VLOG(1) << "masked_reduce::trans from request " << request_id 
-                //             << " object " << object_id
-                //             << " from_id " << from_id
-                //             << " to_id " << to_id
-                //             << " client_fd " << client_fd;
-                VLOG(1) << "masked_reduce:: " 
-                    << "request_id = " << data[0]
-                    << "; object_id = " << data[1]
-                    << "; bitmap_len = " << data[2]
-                    << "; vec_len = " << data[3]
-                    << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
-                    << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
-                    << "; from_id = " << data[5]
-                    << "; to_id = " << data[6]
-                    << "; client_fd = " << client_fd
-                    << "; to_fd = " << to_fd
-                    << "send:: len = " << raw_data.second;
-                caas_send_all(to_fd, raw_data.first, raw_data.second);
+                proxy_send_all(to_fd, raw_data.first, raw_data.second);
                 delete [] raw_data.first;
                 break;
             }
 
             case CAAS_OP::ALLREDUCE:
-                // VLOG(1) << "all reduce from request " << request_id 
-                //             << " object " << object_id
-                //             << " from_id " << from_id
-                //             << " to_id " << to_id
-                //             << " client_fd " << client_fd;
-                VLOG(1) << "all_reduce:: " 
-                    << "request_id = " << data[0]
-                    << "; object_id = " << data[1]
-                    << "; bitmap_len = " << data[2]
-                    << "; vec_len = " << data[3]
-                    << "; reduce_op = " << (int)caas_flag_get_reduce_op(data[4])
-                    << "; comm_op/caas_op = " << (int)caas_flag_get_comm_op(data[4])
-                    << "; from_id = " << data[5]
-                    << "; to_id = " << data[6]
-                    << "; client_fd = " << client_fd
-                    // << "; to_fd = " << to_fd;
-                    << "all_len = " << raw_data.second;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
@@ -364,8 +347,7 @@ void work(int thread_id, int epoll_fd) {
                     fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
                     #pragma omp parallel for
                     for (int i = 0; i < (int)fd_list.size(); i++) {
-                        VLOG(1) << "all_reduce:: send to_fd = " << fd_list[i] << "; len = " << new_data.second;
-                        caas_send_all(fd_list[i], new_data.first, new_data.second);
+                        proxy_send_all(fd_list[i], new_data.first, new_data.second);
                     }
                     segment -> reset();
                 }

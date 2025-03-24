@@ -89,7 +89,6 @@ public:
     std::tuple<comm_object<vwT> *, comm_object<vwT> *, comm_object<uint32_t> *> make_comm_object(
         json meta, CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config
     ) {
-        VLOG(1) << "make_comm_object";
         comm_object<vwT> *in_segment = nullptr, *out_segment = nullptr;
         uint32_t recv_tree_id = meta["recv_tree_id"];
         uint32_t send_tree_id = meta["send_tree_id"];
@@ -213,7 +212,6 @@ public:
         for (int i = 0; i < (int)graphs.size(); i++) {
             VLOG(1) << "graph " << i << " vertex initialize";
             graphs[i] -> begin(round, i);
-            VLOG(1) << "graph " << i << " vertex initialize over";
         }
     }
 

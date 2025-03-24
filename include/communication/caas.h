@@ -85,7 +85,6 @@ COMM_TYPE caas_adaptive_segment(uint32_t segment_size) {
 
 void caas_send_all(int fd, char *data, size_t len) {
     size_t pos = 0;
-    VLOG(1) << "send:: len = " << len << "; fd = " << fd;
     send(fd, &len, sizeof(size_t), 0);
     while (pos < len) {
         ssize_t send_size = send(fd, data + pos, len - pos, 0);
@@ -96,7 +95,6 @@ void caas_send_all(int fd, char *data, size_t len) {
 std::pair<char *, size_t> caas_recv_all(int fd) {
     size_t len, pos = 0;
     ssize_t signal = recv(fd, &len, sizeof(size_t), 0);
-    VLOG(1) << "recv:: len = " << len << "; fd = " << fd;
     if (signal == 0) {
         return {nullptr, 0};
     }
@@ -120,7 +118,6 @@ public:
     
     uint32_t bitmap_len;
     uint32_t vec_len;
-    // (object_id, tree_id , members) used for binomial
     // | root, 1 bit | segment_type, 2 bit | 5 bit | instances 8 bit | members 4 bit | data_type, 4 bit | comm_op, 4 bit | reduce_op, 4 bit |
     uint32_t flag;
 
@@ -274,8 +271,6 @@ public:
     }
 
     uint32_t caas_do(int round = -1, int total_fds = -1) {
-        VLOG(1) << "come in caas_do";
-        VLOG(1) << "this -> reduce_op = " << (int)this -> reduce_op;
         if (this -> comm_op == CAAS_OP::MASKED_BROADCAST || this -> comm_op == CAAS_OP::MASKED_REDUCE) {
             if (this -> colocated_member == this -> members) {
                 VLOG(1) << "object " << this -> object_id << " return from " << (int)(this -> comm_op);
@@ -285,82 +280,50 @@ public:
 
         switch (this -> comm_op){
             case CAAS_OP::MASKED_BROADCAST: { // root or not, it's ok
-                VLOG(1) << "caas::MASKED_BROADCAST";
                 int rounds = ceil(log2(int(this -> instances)));
-                VLOG(1) << "this -> instances = " << (int)this -> instances;
                 for(int i = rounds - 1 ; i >= 0; i--){
-                    VLOG(1) << "i = " << i;
                     uint32_t rcpt_id = this -> tree_id + uint32_t(std::pow(2,i));// for root, tree_id = 0 
-                    VLOG(1) << "this -> tree_id = " << this -> tree_id << "; rcpt_id = " << rcpt_id;
                     if (this -> tree_id % uint32_t(std::pow(2,i+1)) == 0 && rcpt_id < this -> instances) {
-                        VLOG(1) << "broadcast:: send; rcpt_id = " << rcpt_id;
                         COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                         std::pair<char *, size_t> send_segment = caas_make_adaptive_segment<T>(this, segment_type);
                         uint32_t *send_data = (uint32_t *)send_segment.first;
                         send_data[5] = this -> tree_id; // from_id
                         send_data[6] = rcpt_id; // to_id
-                        
-                        VLOG(1) << "broadcast:: before send";
                         caas_send_all(proxy_server_socket, send_segment.first, send_segment.second);
-                        VLOG(1) << "broadcast:: send over";
                         if (segment_type != COMM_TYPE::CAAS_DENSE) {
                             delete [] send_segment.first;
                         }
                     } else if (this -> tree_id % uint32_t(std::pow(2,i)) == 0 && this -> tree_id % uint32_t(std::pow(2,i+1)) != 0){
-                        uint32_t src_id = this -> tree_id - uint32_t(std::pow(2,i)); 
-                        VLOG(1) << "broadcast:: recv; src_id = " << src_id;
                         // do not need src_id actually, but it helps to understand the mechanism
-                        VLOG(1) << "broadcast:: before recv";
                         std::pair<char *, size_t> recv_segment = caas_recv_all(proxy_server_socket);
-                        VLOG(1) << "broadcast:: recv over";
-                        uint32_t *recv_data = (uint32_t *) recv_segment.first;
-                        recv_data[5] = src_id; //from_id
-                        recv_data[6] = this -> tree_id; // recv_id on the same tree
                         caas_put_adaptive_segment<T>(this, recv_segment.first, recv_segment.second);
                         delete [] recv_segment.first;
                     }
                 }
-                VLOG(1) << "caas::out MASKED_BROADCAST";
                 break;
             }
 
             case CAAS_OP::MASKED_REDUCE: {
-                VLOG(1) << "caas::MASKED_REDUCE";
                 int rounds = ceil(log2(int(this -> instances)));
                 for(int i = 0; i < rounds; i++) {
-                    VLOG(1) << "i = " << i;
                     uint32_t src_id = this -> tree_id + uint32_t(std::pow(2,i));// for root, tree_id == 0
-                    VLOG(1) << "this -> tree_id = " << this -> tree_id << "; src_id = " << src_id;
                     if (this -> tree_id % uint32_t(std::pow(2,i+1)) == 0 && src_id < this -> instances) {
-                        VLOG(1) << "before recv";
                         std::pair<char *, size_t> recv_segment = caas_recv_all(proxy_server_socket);
-                        VLOG(1) << "after recv";
-                        uint32_t *recv_data = (uint32_t *) recv_segment.first;
-                        recv_data[5] = src_id; //from_id
-                        recv_data[6] = this -> tree_id; // recv_id on the same tree
-                        CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(recv_data[4]);
-                        VLOG(1) << "masked_reduce:: reduce_op  = " << (int)reduce_op << "; the_reduce_op = " << (int)this -> reduce_op << "; this -> tree_id = " << this -> tree_id << "; src_id = " << src_id;
-                        VLOG(1) << "the_reduce_op = " << (int)this -> reduce_op;
                         caas_reduce_adaptive_segment<T>(this, recv_segment.first, recv_segment.second);
                         delete [] recv_segment.first;
                     } else if (this -> tree_id % uint32_t(std::pow(2,i)) == 0 && this -> tree_id % uint32_t(std::pow(2,i+1)) != 0){
                         uint32_t rcpt_id = this -> tree_id - (uint32_t)std::pow(2,i);
-                        VLOG(1) << "this -> tree_id = " << this -> tree_id << "; rcpt_id = " << rcpt_id;
                         COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                         std::pair<char *, size_t> send_segment = caas_make_adaptive_segment<T>(this, segment_type);
                         uint32_t *send_data = (uint32_t *)send_segment.first;
                         send_data[5] = this -> tree_id; // from_id
                         send_data[6] = rcpt_id; // to_id
-                        VLOG(1) << "before send";
                         caas_send_all(proxy_server_socket, send_segment.first, send_segment.second);
-                        VLOG(1) << "after send";
-                        delete [] send_segment.first;
-                        // if (segment_type != COMM_TYPE::CAAS_DENSE) {
-                        //     delete [] send_segment.first;
-                        // }
+                        if (segment_type != COMM_TYPE::CAAS_DENSE) {
+                            delete [] send_segment.first;
+                        }
                     }
                 }
-                VLOG(1) << "caas::out MASKED_REDUCE";
                 break;
             }
 
