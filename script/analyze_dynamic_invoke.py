@@ -22,16 +22,16 @@ def get_billed_duration(graph_name, application, index):
 
 if __name__ == '__main__':
     graph_name = 'twitter'
-    application = 'sssp'
+    application = 'sssp-u'
     if graph_name == 'livejournal':
         if application == 'bfs' or application == 'pr':
             cmd_num = 1
         elif application == 'sssp' or application == 'cc':
             cmd_num = 1
     elif graph_name == 'twitter':
-        if application == 'bfs' or application == 'pr':
+        if application == 'bfs' or application == 'pr' or application == 'bfs-u' or application == 'pr-u':
             cmd_num = 6
-        elif application == 'sssp' or application == 'cc':
+        elif application == 'sssp' or application == 'cc' or application == 'cc-u' or application == 'sssp-u':
             cmd_num = 12
     elif graph_name == 'friendster':
         if application == 'bfs' or application == 'pr':
@@ -43,7 +43,7 @@ if __name__ == '__main__':
             cmd_num = 9
         elif application == 'sssp' or application == 'cc':
             cmd_num = 17
-    start_time = datetime.datetime(2025, 3, 22, 9, 22, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 3, 22, 14, 56, 50, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     all_duration, all_billed_duration = 0, 0
     for i in range(cmd_num):

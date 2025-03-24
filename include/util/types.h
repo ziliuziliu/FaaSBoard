@@ -6,7 +6,7 @@
 
 #define CAAS_META_SERVER_PORT 20000
 
-#define CAAS_KILL_MESSAGE 0xdeadbeef
+#define CAAS_KILL_MESSAGE 0xffffffff
 
 #define COMM_COMP_RATIO 10
 

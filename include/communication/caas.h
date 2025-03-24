@@ -272,11 +272,13 @@ public:
                 return 0;
             }
         }
+        uint32_t msg_size = 0;
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
+                    msg_size = segment.second;
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
@@ -285,6 +287,7 @@ public:
                 }
                 case CAAS_OP::MASKED_REDUCE: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
+                    msg_size = segment.second;
                     caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
@@ -297,6 +300,7 @@ public:
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
                     std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
+                    msg_size = segment.second;
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
                     break;
@@ -304,6 +308,7 @@ public:
                 case CAAS_OP::MASKED_REDUCE: {
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
+                    msg_size = segment.second;
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
@@ -331,7 +336,7 @@ public:
                     break;
             }
         }
-        return 0;
+        return msg_size;
     }
 
 };

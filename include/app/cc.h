@@ -14,6 +14,8 @@ graph_set<uint32_t, empty> *graphs = nullptr;
 
 void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
     timer t;
+    timer t2;
+    double overall_idle_time = 0;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
@@ -93,9 +95,12 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
     if (!config->no_pipeline) {
         for (int round = 1;; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
+            t2.tick("vote");
             uint32_t activated = graphs->vote(round);
             if (round == 1) {
                 t.from_tick();
+            } else {
+                overall_idle_time += t2.from_tick();
             }
             if (activated == 0) {
                 break;
@@ -130,7 +135,10 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
     }
 
     graphs -> disconnect();
-    t.from_start("overall");
+    double overall_time = t.from_start("overall");
+    VLOG(1) << "total_msg_size: " << (double)graphs -> total_msg_size / 1024 / 1024 << " MB";
+    VLOG(1) << "overall_time: " << (double)overall_time << " s";
+    VLOG(1) << "overall_idle_time: " << (double)overall_idle_time << " s";
     if (!kill) {
         t.tick("save_result");
         graphs->save_result(config->save_mode, config->graph_dir);

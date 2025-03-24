@@ -15,6 +15,8 @@ graph_set<float, empty> *graphs = nullptr;
 
 void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_config *config) {
     timer t;
+    timer t2;
+    double overall_idle_time = 0;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
@@ -81,14 +83,14 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
     graphs -> begin(0);
     bool kill = false;
     if (!config -> no_pipeline) {
-        timer t2;
         for (int round = 1; round <= iterations; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
-            t2.tick(info_prefix + "vote");
+            t2.tick("vote");
             uint32_t activated = graphs -> vote(round);
-            t2.from_tick();
             if (round == 1) {
                 t.from_tick();
+            } else {
+                overall_idle_time += t2.from_tick();
             }
             if (activated == CAAS_KILL_MESSAGE) {
                 kill = true;
@@ -116,7 +118,10 @@ void pagerank(uint32_t request_id, uint32_t partition_id, int iterations, exec_c
         }
     }
     graphs -> disconnect();
-    t.from_start("overall");
+    double overall_time = t.from_start("overall");
+    VLOG(1) << "total_msg_size: " << (double)graphs -> total_msg_size / 1024 / 1024 << " MB";
+    VLOG(1) << "overall_time: " << (double)overall_time << " s";
+    VLOG(1) << "overall_idle_time: " << (double)overall_idle_time << " s";
     if (!kill) {
         t.tick("save_result");
         graphs -> save_result(config -> save_mode, config -> graph_dir);

@@ -27,9 +27,10 @@ public:
         VLOG(1) << "====== start ======";
     }
     
-    void from_start(std::string info) {
+    double from_start(std::string info) {
         double interval = get_time() - start_time;
         VLOG(1) << "====== from start " << info << " " << interval << "s ======";
+        return interval;
     }
 
     void tick(std::string info) {
@@ -38,9 +39,10 @@ public:
         VLOG(1) << "====== tick " << info << " ======";
     }
     
-    void from_tick() {
+    double from_tick() {
         double interval = get_time() - tick_time;
         VLOG(1) << "====== from tick " << tick_info << " " << interval << "s ======";
+        return interval;
     }
 
 };
