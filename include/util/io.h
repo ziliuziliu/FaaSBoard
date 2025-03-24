@@ -2,6 +2,7 @@
 #define _UTILS_H
 
 #include "log.h"
+#include "sdk.h"
 
 #include <iostream>
 #include <fstream>
@@ -175,6 +176,110 @@ void read_csr_util(
         fclose(out_csr_file);
     }
     VLOG(1) << "end reading csr";
+}
+
+template <class T, class OffsetType>
+void read_csr_s3_util(
+    s3_sdk* s3,
+    std::string bucket_name,
+    std::string in_key, std::string out_key,
+    OffsetType *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
+    OffsetType *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
+    bool weighted, bool only_in, bool only_out, bool need_global_degree,
+    uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
+) {
+    VLOG(1) << "start reading csr from S3 directly to memory";
+    
+    size_t size;
+    if (need_global_degree) {
+        VLOG(1) << "reading in degree";
+        std::string in_degree_key = in_key + ".deg";
+        size = s3->get_object_to_buffer(bucket_name, in_degree_key, in_degree, out_vertex_cnt, 4);
+        CHECK(size == out_vertex_cnt) << "S3 read failed, read size " << size << " actual " << out_vertex_cnt;
+    }
+    
+    if (!only_out) {
+        VLOG(1) << "reading in edges";
+        
+        // 获取完整的in文件到临时缓冲区
+        size_t in_file_size = (out_vertex_cnt + 1) * sizeof(OffsetType) + 
+                              total_e * 4 + 
+                              (weighted ? total_e * sizeof(T) : 0);
+                              
+        char* in_buffer = new char[in_file_size];
+        size_t bytes_read = s3->s3_client->GetObject(
+            Aws::S3::Model::GetObjectRequest().WithBucket(bucket_name).WithKey(in_key)
+        ).GetResultWithOwnership().GetBody().read(in_buffer, in_file_size).gcount();
+        
+        CHECK(bytes_read == in_file_size) 
+            << "S3 read failed for in-file, expected " << in_file_size 
+            << " bytes, got " << bytes_read;
+        
+        // 从缓冲区复制数据到相应的数组
+        char* buffer_ptr = in_buffer;
+        
+        // 复制in_offset
+        memcpy(in_offset, buffer_ptr, (out_vertex_cnt + 1) * sizeof(OffsetType));
+        buffer_ptr += (out_vertex_cnt + 1) * sizeof(OffsetType);
+        
+        // 复制in_source
+        memcpy(in_source, buffer_ptr, total_e * 4);
+        buffer_ptr += total_e * 4;
+        
+        // 如果有权重，复制in_weight
+        if (weighted) {
+            memcpy(in_weight, buffer_ptr, total_e * sizeof(T));
+        }
+        
+        // 释放临时缓冲区
+        delete[] in_buffer;
+    }
+    
+    if (need_global_degree) {
+        VLOG(1) << "reading out degree";
+        std::string out_degree_key = out_key + ".deg";
+        size = s3->get_object_to_buffer(bucket_name, out_degree_key, out_degree, in_vertex_cnt, 4);
+        CHECK(size == in_vertex_cnt) << "S3 read failed, read size " << size << " actual " << in_vertex_cnt;
+    }
+    
+    if (!only_in) {
+        VLOG(1) << "reading out edges";
+        
+        // 获取完整的out文件到临时缓冲区
+        size_t out_file_size = (in_vertex_cnt + 1) * sizeof(OffsetType) + 
+                               total_e * 4 + 
+                               (weighted ? total_e * sizeof(T) : 0);
+                              
+        char* out_buffer = new char[out_file_size];
+        size_t bytes_read = s3->s3_client->GetObject(
+            Aws::S3::Model::GetObjectRequest().WithBucket(bucket_name).WithKey(out_key)
+        ).GetResultWithOwnership().GetBody().read(out_buffer, out_file_size).gcount();
+        
+        CHECK(bytes_read == out_file_size) 
+            << "S3 read failed for out-file, expected " << out_file_size 
+            << " bytes, got " << bytes_read;
+        
+        // 从缓冲区复制数据到相应的数组
+        char* buffer_ptr = out_buffer;
+        
+        // 复制out_offset
+        memcpy(out_offset, buffer_ptr, (in_vertex_cnt + 1) * sizeof(OffsetType));
+        buffer_ptr += (in_vertex_cnt + 1) * sizeof(OffsetType);
+        
+        // 复制out_dest
+        memcpy(out_dest, buffer_ptr, total_e * 4);
+        buffer_ptr += total_e * 4;
+        
+        // 如果有权重，复制out_weight
+        if (weighted) {
+            memcpy(out_weight, buffer_ptr, total_e * sizeof(T));
+        }
+        
+        // 释放临时缓冲区
+        delete[] out_buffer;
+    }
+    
+    VLOG(1) << "end reading csr from S3";
 }
 
 template <class T, class OffsetType>

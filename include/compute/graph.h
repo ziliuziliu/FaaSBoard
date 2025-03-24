@@ -106,6 +106,17 @@ public:
         );
     }
 
+    void read_csr_s3(s3_sdk* s3, std::string in_path, std::string out_path) {
+        read_csr_s3_util<ewT, uint32_t>(
+            s3, "ltruan",
+            in_path, out_path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree,
+            weighted, config -> dense_only, config -> sparse_only, config -> need_global_degree,
+            to_source - from_source, to_dest - from_dest, edges
+        );
+    } 
+
     void set_comm_object(comm_object<vwT> *in_segment, comm_object<vwT> *out_segment, comm_object<uint32_t> *vote_object) {
         this -> in_segment = in_segment;
         this -> out_segment = out_segment;

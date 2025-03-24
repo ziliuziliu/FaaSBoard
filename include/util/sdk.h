@@ -126,6 +126,35 @@ struct s3_sdk {
         }
     }
 
+    template<typename T>
+    size_t get_object_to_buffer(std::string bucket_name, std::string object_name, 
+                            T* buffer, size_t element_count, size_t element_size = sizeof(T)) {
+        Aws::S3::Model::GetObjectRequest request;
+        request.SetBucket(bucket_name);
+        request.SetKey(object_name);
+        
+        auto outcome = s3_client->GetObject(request);
+        if (!outcome.IsSuccess()) {
+            const auto& error = outcome.GetError();
+            LOG(FATAL) << "error getting object " << object_name
+                    << " from bucket " << bucket_name
+                    << " exception " << error.GetExceptionName()
+                    << " message " << error.GetMessage();
+        }
+        
+        auto& data = outcome.GetResultWithOwnership().GetBody();
+        size_t expected_bytes = element_count * element_size;
+        size_t bytes_read = data.read(reinterpret_cast<char*>(buffer), expected_bytes).gcount();
+        size_t elements_read = bytes_read / element_size;
+        
+        CHECK(bytes_read == expected_bytes) 
+            << "S3 read failed, expected " << expected_bytes 
+            << " bytes, got " << bytes_read 
+            << " for object " << object_name;
+        
+        return elements_read;
+    }
+
 };
 
 struct lambda_sdk {
@@ -403,6 +432,75 @@ class elasticache_sdk {
                 redisFree(redisCtx);
                 redisCtx = nullptr;
             }
+        }
+
+        template<typename T>
+        size_t get_object_to_buffer_auto(elasticache_sdk& redis_sdk, const std::string& relative_path, 
+                                        T* buffer, size_t element_count, size_t element_size = sizeof(T)) 
+        {
+            if (!buffer) {
+                LOG(FATAL) << "Buffer is null";
+            }
+
+            std::string base_key = "faasboard:{" + relative_path + "}";
+            size_t expected_bytes = element_count * element_size;
+            size_t bytes_read = 0;
+
+            // Step 1: Try GET first
+            redisReply* reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "GET %s", base_key.c_str());
+
+            if (reply && reply->type == REDIS_REPLY_STRING) {
+                // Single file path
+                size_t len = reply->len;
+                CHECK(len == expected_bytes) 
+                    << "GET returned unexpected size: expected " << expected_bytes << " bytes, got " << len;
+
+                memcpy(reinterpret_cast<char*>(buffer), reply->str, len);
+                bytes_read = len;
+
+                freeReplyObject(reply);
+                return bytes_read / element_size;
+            }
+
+            if (reply) freeReplyObject(reply); // Always cleanup
+
+            // Step 2: Fallback to chunked mode
+            std::string hash_key = base_key + ":chunks";
+            
+            // Get total_chunks
+            reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "HGET %s %s", hash_key.c_str(), "total_chunks");
+            if (!reply || reply->type != REDIS_REPLY_STRING) {
+                LOG(FATAL) << "Neither GET nor HGET total_chunks succeeded for key: " << relative_path;
+            }
+            int total_chunks = std::stoi(reply->str);
+            freeReplyObject(reply);
+
+            // Sequentially read chunks
+            for (int i = 0; i < total_chunks; ++i) {
+                std::string chunk_field = "chunk:" + std::to_string(i);
+                reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "HGET %s %s", 
+                                                hash_key.c_str(), chunk_field.c_str());
+
+                if (!reply || reply->type != REDIS_REPLY_STRING) {
+                    LOG(FATAL) << "Missing or invalid chunk: " << chunk_field;
+                }
+
+                size_t chunk_size = reply->len;
+                if (bytes_read + chunk_size > expected_bytes) {
+                    freeReplyObject(reply);
+                    LOG(FATAL) << "Chunk read exceeds buffer size";
+                }
+
+                memcpy(reinterpret_cast<char*>(buffer) + bytes_read, reply->str, chunk_size);
+                bytes_read += chunk_size;
+
+                freeReplyObject(reply);
+            }
+
+            CHECK(bytes_read == expected_bytes) 
+                << "Chunked read mismatch: expected " << expected_bytes << ", got " << bytes_read;
+
+            return bytes_read / element_size;
         }
 };
 
