@@ -108,7 +108,7 @@ public:
 
     void read_csr_s3(s3_sdk* s3, std::string in_path, std::string out_path) {
         read_csr_s3_util<ewT, uint32_t>(
-            s3, "ltruan",
+            s3, "ziliuziliu",
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree,

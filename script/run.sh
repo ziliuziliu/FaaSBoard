@@ -15,7 +15,7 @@ no_pipeline=false
 sparse_only=true
 dense_only=false
 need_global_degree=false
-save_mode=0
+save_mode=2
 s3_bucket="ziliuziliu"
 bfs_root=0
 dynamic_invoke=false
@@ -31,7 +31,7 @@ for i in {0..7}; do
     output_file="result${i}.txt"
 
     payload="{
-      \"function_name\": \"cache_bfs_$i\",
+      \"function_name\": \"cache_s3_bfs_$i\",
       \"graph_dir\": \"$graph_dir\",
       \"result_dir\": \"$result_dir\",
       \"cores\": $cores,
@@ -49,9 +49,9 @@ for i in {0..7}; do
       \"elasticache_host\": \"$elasticache_host\"
     }"
 
-    log "invoke cache_bfs_$i"
+    log "invoke cache_s3_bfs_$i"
     aws lambda invoke \
-      --function-name cache_bfs_$i \
+      --function-name cache_s3_bfs_$i \
       --payload "$payload" \
       $output_file > /dev/null
 

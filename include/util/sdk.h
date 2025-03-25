@@ -89,9 +89,12 @@ struct s3_sdk {
     }
     
     std::pair<char *, uint32_t> get_object(std::string bucket_name, std::string object_name) {
+        VLOG(1) << "set request for getting object " << object_name << " from bucket " << bucket_name;
         Aws::S3::Model::GetObjectRequest request;
         request.SetBucket(bucket_name);
         request.SetKey(object_name);
+
+        VLOG(1) << "get object";
         Aws::S3::Model::GetObjectOutcome outcome = s3_client -> GetObject(request);
         if (!outcome.IsSuccess()) {
             const auto& error = outcome.GetError();
@@ -100,6 +103,8 @@ struct s3_sdk {
                        << " exception " << error.GetExceptionName()
                        << " message " << error.GetMessage();        
         }
+
+        VLOG(1) << "handle object data";
         auto &data = outcome.GetResultWithOwnership().GetBody();
         auto len = outcome.GetResultWithOwnership().GetContentLength();
         char *buffer = new char[len];
@@ -124,35 +129,6 @@ struct s3_sdk {
                        << " exception " << error.GetExceptionName()
                        << " message " << error.GetMessage();
         }
-    }
-
-    template<typename T>
-    size_t get_object_to_buffer(std::string bucket_name, std::string object_name, 
-                            T* buffer, size_t element_count, size_t element_size = sizeof(T)) {
-        Aws::S3::Model::GetObjectRequest request;
-        request.SetBucket(bucket_name);
-        request.SetKey(object_name);
-        
-        auto outcome = s3_client->GetObject(request);
-        if (!outcome.IsSuccess()) {
-            const auto& error = outcome.GetError();
-            LOG(FATAL) << "error getting object " << object_name
-                    << " from bucket " << bucket_name
-                    << " exception " << error.GetExceptionName()
-                    << " message " << error.GetMessage();
-        }
-        
-        auto& data = outcome.GetResultWithOwnership().GetBody();
-        size_t expected_bytes = element_count * element_size;
-        size_t bytes_read = data.read(reinterpret_cast<char*>(buffer), expected_bytes).gcount();
-        size_t elements_read = bytes_read / element_size;
-        
-        CHECK(bytes_read == expected_bytes) 
-            << "S3 read failed, expected " << expected_bytes 
-            << " bytes, got " << bytes_read 
-            << " for object " << object_name;
-        
-        return elements_read;
     }
 
 };

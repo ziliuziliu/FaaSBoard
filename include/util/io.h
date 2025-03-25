@@ -188,94 +188,96 @@ void read_csr_s3_util(
     bool weighted, bool only_in, bool only_out, bool need_global_degree,
     uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
 ) {
-    VLOG(1) << "start reading csr from S3 directly to memory";
+    VLOG(1) << "start reading csr from S3";
     
-    size_t size;
     if (need_global_degree) {
         VLOG(1) << "reading in degree";
         std::string in_degree_key = in_key + ".deg";
-        size = s3->get_object_to_buffer(bucket_name, in_degree_key, in_degree, out_vertex_cnt, 4);
-        CHECK(size == out_vertex_cnt) << "S3 read failed, read size " << size << " actual " << out_vertex_cnt;
+        std::pair<char*, uint32_t> degree_pair = s3->get_object(bucket_name, in_degree_key);
+        char* degree_buffer = degree_pair.first;
+        uint32_t degree_len = degree_pair.second;
+        
+        CHECK(degree_len == out_vertex_cnt * 4) 
+            << "Unexpected in_degree file size, expected " << out_vertex_cnt * 4 
+            << " got " << degree_len;
+        
+        memcpy(in_degree, degree_buffer, degree_len);
+        delete[] degree_buffer;
     }
     
     if (!only_out) {
         VLOG(1) << "reading in edges";
+        std::pair<char*, uint32_t> in_pair = s3->get_object(bucket_name, in_key);
+        char* in_buffer = in_pair.first;
+        uint32_t in_len = in_pair.second;
         
-        // 获取完整的in文件到临时缓冲区
-        size_t in_file_size = (out_vertex_cnt + 1) * sizeof(OffsetType) + 
-                              total_e * 4 + 
-                              (weighted ? total_e * sizeof(T) : 0);
-                              
-        char* in_buffer = new char[in_file_size];
-        size_t bytes_read = s3->s3_client->GetObject(
-            Aws::S3::Model::GetObjectRequest().WithBucket(bucket_name).WithKey(in_key)
-        ).GetResultWithOwnership().GetBody().read(in_buffer, in_file_size).gcount();
+        // 计算期望的文件大小
+        size_t expected_in_len = (out_vertex_cnt + 1) * sizeof(OffsetType) + 
+                                  total_e * 4 + 
+                                  (weighted ? total_e * sizeof(T) : 0);
         
-        CHECK(bytes_read == in_file_size) 
-            << "S3 read failed for in-file, expected " << in_file_size 
-            << " bytes, got " << bytes_read;
+        CHECK(in_len == expected_in_len) 
+            << "Unexpected in_file size, expected " << expected_in_len 
+            << " got " << in_len;
         
-        // 从缓冲区复制数据到相应的数组
         char* buffer_ptr = in_buffer;
         
-        // 复制in_offset
+        // 复制 in_offset
         memcpy(in_offset, buffer_ptr, (out_vertex_cnt + 1) * sizeof(OffsetType));
         buffer_ptr += (out_vertex_cnt + 1) * sizeof(OffsetType);
         
-        // 复制in_source
+        // 复制 in_source
         memcpy(in_source, buffer_ptr, total_e * 4);
         buffer_ptr += total_e * 4;
         
-        // 如果有权重，复制in_weight
+        // 复制 in_weight（如果有）
         if (weighted) {
             memcpy(in_weight, buffer_ptr, total_e * sizeof(T));
         }
         
-        // 释放临时缓冲区
         delete[] in_buffer;
     }
     
     if (need_global_degree) {
         VLOG(1) << "reading out degree";
         std::string out_degree_key = out_key + ".deg";
-        size = s3->get_object_to_buffer(bucket_name, out_degree_key, out_degree, in_vertex_cnt, 4);
-        CHECK(size == in_vertex_cnt) << "S3 read failed, read size " << size << " actual " << in_vertex_cnt;
+        std::pair<char*, uint32_t> out_degree_pair = s3->get_object(bucket_name, out_degree_key);
+        char* out_degree_buffer = out_degree_pair.first;
+        uint32_t out_degree_len = out_degree_pair.second;
+        
+        CHECK(out_degree_len == in_vertex_cnt * 4) 
+            << "Unexpected out_degree file size, expected " << in_vertex_cnt * 4 
+            << " got " << out_degree_len;
+        
+        memcpy(out_degree, out_degree_buffer, out_degree_len);
+        delete[] out_degree_buffer;
     }
     
     if (!only_in) {
-        VLOG(1) << "reading out edges";
+        VLOG(1) << "reading out edges" << bucket_name << "and" << out_key;
+        std::pair<char*, uint32_t> out_pair = s3->get_object(bucket_name, out_key);
+        char* out_buffer = out_pair.first;
+        // uint32_t out_len = out_pair.second;
         
-        // 获取完整的out文件到临时缓冲区
-        size_t out_file_size = (in_vertex_cnt + 1) * sizeof(OffsetType) + 
-                               total_e * 4 + 
-                               (weighted ? total_e * sizeof(T) : 0);
-                              
-        char* out_buffer = new char[out_file_size];
-        size_t bytes_read = s3->s3_client->GetObject(
-            Aws::S3::Model::GetObjectRequest().WithBucket(bucket_name).WithKey(out_key)
-        ).GetResultWithOwnership().GetBody().read(out_buffer, out_file_size).gcount();
-        
-        CHECK(bytes_read == out_file_size) 
-            << "S3 read failed for out-file, expected " << out_file_size 
-            << " bytes, got " << bytes_read;
-        
-        // 从缓冲区复制数据到相应的数组
+        VLOG(1) << "start copying out_buffer";
         char* buffer_ptr = out_buffer;
         
-        // 复制out_offset
+        // 复制 out_offset
+        VLOG(1) << "copying out_offset";
         memcpy(out_offset, buffer_ptr, (in_vertex_cnt + 1) * sizeof(OffsetType));
         buffer_ptr += (in_vertex_cnt + 1) * sizeof(OffsetType);
         
-        // 复制out_dest
+        // 复制 out_dest
+        VLOG(1) << "copying out_dest";
         memcpy(out_dest, buffer_ptr, total_e * 4);
         buffer_ptr += total_e * 4;
         
-        // 如果有权重，复制out_weight
+        // 复制 out_weight（如果有）
+        VLOG(1) << "copying out_weight";
         if (weighted) {
             memcpy(out_weight, buffer_ptr, total_e * sizeof(T));
         }
         
-        // 释放临时缓冲区
         delete[] out_buffer;
     }
     

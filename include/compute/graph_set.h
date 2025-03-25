@@ -41,29 +41,13 @@ public:
         if (config -> enable_s3_sdk()) {
             s_sdk = new s3_sdk();
         }
-        // std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
-        // if (!meta_file.is_open()) {
-        //     LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
-        // }
-        // std::stringstream meta_buffer;
-        // meta_buffer << meta_file.rdbuf();
-
-        auto outcome = s_sdk->s3_client->GetObject(
-            Aws::S3::Model::GetObjectRequest().WithBucket("ltruan").WithKey("friendster/unweighted/graphs.meta")
-        );
-        
-        if (!outcome.IsSuccess()) {
-            const auto& error = outcome.GetError();
-            LOG(FATAL) << "error reading meta file: " << "friendster/unweighted/graphs.meta"
-                      << " from bucket " << "ltruan"
-                      << " exception " << error.GetExceptionName()
-                      << " message " << error.GetMessage();
+        VLOG(1) << "aws sdk and s3 init done";
+        std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
+        if (!meta_file.is_open()) {
+            LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
         }
-        
-        // 将S3对象内容读取到字符串流中
         std::stringstream meta_buffer;
-        meta_buffer << outcome.GetResultWithOwnership().GetBody().rdbuf();
-
+        meta_buffer << meta_file.rdbuf();
         json metadata = json::parse(meta_buffer.str());
         meta = graph_meta(metadata["total_v"], metadata["total_e"]);
         omp_set_num_threads(metadata["graphs"].size());

@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Configuration parameters
-S3_BUCKET_NAME = "ltruan"  # S3 bucket name
+S3_BUCKET_NAME = "ziliuziliu"  # S3 bucket name
 AWS_REGION = "ap-southeast-1"  # AWS region
 
 def upload_folder_to_s3(local_folder_path, s3_prefix=""):
