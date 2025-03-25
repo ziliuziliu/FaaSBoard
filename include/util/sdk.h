@@ -106,9 +106,13 @@ struct s3_sdk {
 
         VLOG(1) << "handle object data";
         auto &data = outcome.GetResultWithOwnership().GetBody();
+        VLOG(1) << "get object length";
         auto len = outcome.GetResultWithOwnership().GetContentLength();
+        VLOG(1) << "allocate buffer";
         char *buffer = new char[len];
+        VLOG(1) << "read object data";
         data.read(buffer, len);
+        VLOG(1) << "return object data";
         return std::make_pair(buffer, len);
     }
     

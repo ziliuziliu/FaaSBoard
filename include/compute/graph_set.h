@@ -62,8 +62,8 @@ public:
             );
             newgraph -> read_csr_s3(
                 s_sdk,
-                "friendster/unweighted/" + std::to_string(i) + "/graph" + std::to_string(i) + ".csr.in",
-                "friendster/unweighted/" + std::to_string(i) + "/graph" + std::to_string(i) + ".csr.out"
+                "friendster/unweighted/" + config->lambda_num + "/graph" + std::to_string(i) + ".csr.in",
+                "friendster/unweighted/" + config->lambda_num + "/graph" + std::to_string(i) + ".csr.out"
             );
             #pragma omp critical 
             {

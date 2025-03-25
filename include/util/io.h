@@ -194,91 +194,58 @@ void read_csr_s3_util(
         VLOG(1) << "reading in degree";
         std::string in_degree_key = in_key + ".deg";
         std::pair<char*, uint32_t> degree_pair = s3->get_object(bucket_name, in_degree_key);
-        char* degree_buffer = degree_pair.first;
-        uint32_t degree_len = degree_pair.second;
         
-        CHECK(degree_len == out_vertex_cnt * 4) 
-            << "Unexpected in_degree file size, expected " << out_vertex_cnt * 4 
-            << " got " << degree_len;
-        
-        memcpy(in_degree, degree_buffer, degree_len);
-        delete[] degree_buffer;
+        // 直接使用指针，避免拷贝
+        in_degree = reinterpret_cast<uint32_t*>(degree_pair.first);
     }
     
     if (!only_out) {
         VLOG(1) << "reading in edges";
         std::pair<char*, uint32_t> in_pair = s3->get_object(bucket_name, in_key);
         char* in_buffer = in_pair.first;
-        uint32_t in_len = in_pair.second;
-        
-        // 计算期望的文件大小
-        size_t expected_in_len = (out_vertex_cnt + 1) * sizeof(OffsetType) + 
-                                  total_e * 4 + 
-                                  (weighted ? total_e * sizeof(T) : 0);
-        
-        CHECK(in_len == expected_in_len) 
-            << "Unexpected in_file size, expected " << expected_in_len 
-            << " got " << in_len;
         
         char* buffer_ptr = in_buffer;
         
-        // 复制 in_offset
-        memcpy(in_offset, buffer_ptr, (out_vertex_cnt + 1) * sizeof(OffsetType));
+        // 直接使用指针指向缓冲区
+        in_offset = reinterpret_cast<OffsetType*>(buffer_ptr);
         buffer_ptr += (out_vertex_cnt + 1) * sizeof(OffsetType);
         
-        // 复制 in_source
-        memcpy(in_source, buffer_ptr, total_e * 4);
+        in_source = reinterpret_cast<uint32_t*>(buffer_ptr);
         buffer_ptr += total_e * 4;
         
-        // 复制 in_weight（如果有）
+        // 如果是加权图，直接指向权重数据
         if (weighted) {
-            memcpy(in_weight, buffer_ptr, total_e * sizeof(T));
+            in_weight = reinterpret_cast<T*>(buffer_ptr);
         }
-        
-        delete[] in_buffer;
     }
     
     if (need_global_degree) {
         VLOG(1) << "reading out degree";
         std::string out_degree_key = out_key + ".deg";
         std::pair<char*, uint32_t> out_degree_pair = s3->get_object(bucket_name, out_degree_key);
-        char* out_degree_buffer = out_degree_pair.first;
-        uint32_t out_degree_len = out_degree_pair.second;
         
-        CHECK(out_degree_len == in_vertex_cnt * 4) 
-            << "Unexpected out_degree file size, expected " << in_vertex_cnt * 4 
-            << " got " << out_degree_len;
-        
-        memcpy(out_degree, out_degree_buffer, out_degree_len);
-        delete[] out_degree_buffer;
+        // 直接使用指针，避免拷贝
+        out_degree = reinterpret_cast<uint32_t*>(out_degree_pair.first);
     }
     
     if (!only_in) {
         VLOG(1) << "reading out edges" << bucket_name << "and" << out_key;
         std::pair<char*, uint32_t> out_pair = s3->get_object(bucket_name, out_key);
         char* out_buffer = out_pair.first;
-        // uint32_t out_len = out_pair.second;
         
-        VLOG(1) << "start copying out_buffer";
         char* buffer_ptr = out_buffer;
         
-        // 复制 out_offset
-        VLOG(1) << "copying out_offset";
-        memcpy(out_offset, buffer_ptr, (in_vertex_cnt + 1) * sizeof(OffsetType));
+        // 直接使用指针指向缓冲区
+        out_offset = reinterpret_cast<OffsetType*>(buffer_ptr);
         buffer_ptr += (in_vertex_cnt + 1) * sizeof(OffsetType);
         
-        // 复制 out_dest
-        VLOG(1) << "copying out_dest";
-        memcpy(out_dest, buffer_ptr, total_e * 4);
+        out_dest = reinterpret_cast<uint32_t*>(buffer_ptr);
         buffer_ptr += total_e * 4;
         
-        // 复制 out_weight（如果有）
-        VLOG(1) << "copying out_weight";
+        // 如果是加权图，直接指向权重数据
         if (weighted) {
-            memcpy(out_weight, buffer_ptr, total_e * sizeof(T));
+            out_weight = reinterpret_cast<T*>(buffer_ptr);
         }
-        
-        delete[] out_buffer;
     }
     
     VLOG(1) << "end reading csr from S3";

@@ -42,6 +42,7 @@ DEFINE_int32(kill_wait_ms, 100000, "wait time to kill process");
 DEFINE_bool(elastic_proxy, false, "enable elastic proxy");
 DEFINE_string(elasticache_host, "", "elasticache host");
 DEFINE_string(proxy_ip, "", "proxy server ip");
+DEFINE_string(lambda_num, "", "number of lambda functions");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);
@@ -68,6 +69,7 @@ struct exec_config {
     bool elastic_proxy;
     int kill_wait_ms;
     RUN_TYPE run_type;
+    std::string lambda_num;
 
     exec_config() {}
     
@@ -78,14 +80,14 @@ struct exec_config {
         int cores, CAAS_SAVE_MODE save_mode,
         std::string elasticache_host, std::string proxy_ip, 
         bool elastic_proxy, int kill_wait_ms,
-        RUN_TYPE run_type
+        RUN_TYPE run_type, std::string lambda_num
     ):request_id(request_id), partition_id(partition_id),
       graph_dir(graph_dir), result_dir(result_dir), s3_bucket(s3_bucket), 
       no_pipeline(no_pipeline), sparse_only(sparse_only), dense_only(dense_only), dynamic_invoke(dynamic_invoke), 
       need_global_degree(need_global_degree),
       cores(cores), save_mode(save_mode), elasticache_host(elasticache_host), proxy_ip(proxy_ip), 
       elastic_proxy(elastic_proxy), kill_wait_ms(kill_wait_ms), 
-      run_type(run_type) {
+      run_type(run_type), lambda_num(lambda_num) {
         if (no_pipeline) {
             VLOG(1) << "pipeline disabled";
         }
@@ -104,7 +106,7 @@ struct exec_config {
             FLAGS_no_pipeline, FLAGS_sparse_only, FLAGS_dense_only, FLAGS_dynamic_invoke, FLAGS_need_global_degree,
             FLAGS_cores, (CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_elasticache_host, FLAGS_proxy_ip, 
             FLAGS_elastic_proxy, FLAGS_kill_wait_ms,
-            RUN_TYPE::LOCAL
+            RUN_TYPE::LOCAL, FLAGS_lambda_num
         );
         config -> pr_iterations = FLAGS_pr_iterations;
         config -> bfs_root = FLAGS_bfs_root;
@@ -123,7 +125,7 @@ struct exec_config {
             request["no_pipeline"], request["sparse_only"], request["dense_only"], request["dynamic_invoke"], request["need_global_degree"],
             request["cores"], (CAAS_SAVE_MODE)request["save_mode"], elasticache_host, proxy_ip, 
             request["elastic_proxy"], kill_wait_ms,
-            RUN_TYPE::LAMBDA
+            RUN_TYPE::LAMBDA, request["lambda_num"]
         );
         config -> request = request;
         if (config -> get_app() == "bfs"){

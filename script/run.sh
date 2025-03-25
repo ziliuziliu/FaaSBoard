@@ -9,6 +9,7 @@ fi
 request_id=$1
 
 graph_dir="graph"
+lambda_num="0"
 result_dir="/tmp"
 cores=2
 no_pipeline=false
@@ -32,6 +33,7 @@ for i in {0..7}; do
 
     payload="{
       \"function_name\": \"cache_s3_bfs_$i\",
+      \"lambda_num\": \"$i\",
       \"graph_dir\": \"$graph_dir\",
       \"result_dir\": \"$result_dir\",
       \"cores\": $cores,
@@ -56,9 +58,9 @@ for i in {0..7}; do
       $output_file > /dev/null
 
     if grep -q '"FunctionError"' "$output_file"; then
-      log "cache_bfs_$i failed, see $output_file"
+      log "cache_s3_bfs_$i failed, see $output_file"
     else
-      log "cache_bfs_$i completed"
+      log "cache_s3_bfs_$i completed"
     fi
   ) &
 done
