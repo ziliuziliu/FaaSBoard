@@ -269,11 +269,11 @@ public:
             graph -> print(detail);
     }
 
-    static void save(std::vector<graph_set<ewT> *> graphsets) {
+    static void save(bool clean, std::vector<graph_set<ewT> *> graphsets) {
         for (auto graphset : graphsets) {
             std::vector<graph<ewT> *> non_empty_graphs;
             for (auto graph : graphset -> graphs) {
-                if (graph -> edges > 0 || graph -> root()) {
+                if (graph -> edges > 0 || graph -> root() || !clean) {
                     non_empty_graphs.push_back(graph);
                 }
             }

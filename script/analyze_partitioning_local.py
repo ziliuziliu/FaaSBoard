@@ -2,35 +2,30 @@ import boto3
 import datetime
 
 def get_info(graph, application, index):
-    global start_time, client
-    resp = client.filter_log_events(
-        logGroupName='/aws/lambda/{}_{}_{}'.format(graph, application, index),
-        startTime=int(start_time * 1000),
-    )
-    events = resp['events']
+    lines = []
+    with open('../build/{}.txt'.format(index)) as f:
+        lines = f.readlines()
     msg_size_list, overall_time_list, idle_time_list, durations = [], [], [], []
-    for event in events:
-        message = str(event['message'])
-        if 'Duration' in message:
-            duration = float(message.split('Duration: ')[1].split(' ms')[0])
-            durations.append(duration)
-        if 'total_msg_size' in message:
-            total_msg_size = float(message.split('total_msg_size: ')[1].split(' MB')[0])
+    for line in lines:
+        if 'from tick read graph' in line:
+            read_graph_time = float(line.split('read graph')[1].split('s')[0])
+        if 'total_msg_size' in line:
+            total_msg_size = float(line.split('total_msg_size: ')[1].split(' MB')[0])
             msg_size_list.append(total_msg_size)
-        if 'overall_time' in message:
-            overall_time = float(message.split('overall_time: ')[1].split(' s')[0])
+        if 'overall_time' in line:
+            overall_time = float(line.split('overall_time: ')[1].split(' s')[0])
+            overall_time -= read_graph_time
             overall_time_list.append(overall_time)
-        if 'idle_time' in message:
-            idle_time = float(message.split('overall_idle_time: ')[1].split(' s')[0])
+            durations.append(overall_time)
+        if 'idle_time' in line:
+            idle_time = float(line.split('overall_idle_time: ')[1].split(' s')[0])
             idle_time_list.append(idle_time)
     return durations, msg_size_list, overall_time_list, idle_time_list
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 3, 26, 16, 43, tzinfo=datetime.timezone.utc).timestamp()
-    client = boto3.client('logs')
-    
-    graph_name = 'twitter'
-    application = 'pr-accurate'
+
+    graph_name = 'rmat27'
+    application = 'pr'
 
     if graph_name == 'livejournal':
         if application == 'bfs' or application == 'pr':

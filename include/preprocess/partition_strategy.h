@@ -67,9 +67,9 @@ private:
         std::vector<uint32_t> cuts = convert_cutset_to_vector(cutset);
         int cut = cuts.size() - 1;
         partition_result processed_result = graph.generate_checkerboard_partition_from_cuts(cut, cuts);
-        graphsets = graph.partition(processed_result);
+        graphsets = graph.partition(processed_result, false);
         std::vector<graph_set<ewT>*> new_graphsets = graph_set<ewT>::pack_graph(graphsets, result);
-        handle_save(new_graphsets);
+        handle_save(true, new_graphsets);
     }
 
     // Actually, when this function is called, each graphset contains only one graph at this point.
@@ -90,8 +90,8 @@ private:
         return graphsets;
     }
 
-    void handle_save(const std::vector<graph_set<ewT>*>& new_graphsets = {}) {
-        graph_set<ewT>::save(new_graphsets.empty() ? graphsets : new_graphsets);
+    void handle_save(bool clean, const std::vector<graph_set<ewT>*>& new_graphsets = {}) {
+        graph_set<ewT>::save(clean, new_graphsets.empty() ? graphsets : new_graphsets);
     }
 
     void handle_row() {
@@ -129,7 +129,7 @@ private:
             cut++;
         }
         VLOG(1) << "begin partitioning";
-        graphsets = graph.partition(result);
+        graphsets = graph.partition(result, true);
         for (auto graphset : graphsets) {
             graphset->print(false);
         }
@@ -147,7 +147,7 @@ private:
                 VLOG(1) << "save? (Y or N)";
                 std::cin >> save;
                 if (save == "Y") {
-                    handle_save(new_graphsets);
+                    handle_save(true, new_graphsets);
                     break;
                 }
             } catch (const std::runtime_error& e) {
@@ -161,14 +161,14 @@ private:
         result.print();
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
-        graphsets = graph.partition(result);
+        graphsets = graph.partition(result, true);
         Normalize_graphsets();
         for (auto graphset : graphsets) {
             graphset->print(false);
         }
         VLOG(1) << "cycle placing";
         graphsets = graph_set<ewT>::cycle(graphsets, total_block);
-        handle_save();
+        handle_save(true);
     }
 
     void handle_stagger() {
@@ -176,14 +176,14 @@ private:
         result.print();
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
-        graphsets = graph.partition(result);
+        graphsets = graph.partition(result, true);
         Normalize_graphsets();
         for (auto graphset : graphsets) {
             graphset->print(false);
         }
         VLOG(1) << "stagger placing";
         graphsets = graph_set<ewT>::stagger(graphsets, total_block);
-        handle_save();
+        handle_save(true);
     }
 };
 

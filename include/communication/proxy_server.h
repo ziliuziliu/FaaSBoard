@@ -570,8 +570,9 @@ void run() {
     event.events = EPOLLIN;
     event.data.fd = server_fd;
     epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &event);
-    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores - 1];
-    for (int i = 0; i < (int)config -> cores - 1; i++) {
+    fd_queue = new moodycamel::BlockingReaderWriterCircularBuffer<int>*[config -> cores];
+    int workers = config -> dynamic_invoke ? config -> cores - 1 : config -> cores;
+    for (int i = 0; i < workers; i++) {
         fd_queue[i] = new moodycamel::BlockingReaderWriterCircularBuffer<int>(MAX_CONNECTION);
         std::thread worker(work, i, epoll_fd);
         worker.detach();
@@ -643,7 +644,7 @@ void run() {
                     continue;
                 }
                 int mn_size = 0x7fffffff, mn_thread_id = -1;
-                for (int i = 0; i < (int)config -> cores - 1; i++) {
+                for (int i = 0; i < (int)config -> cores; i++) {
                     if (thread_stuck[i]) {
                         continue;
                     }
@@ -654,7 +655,13 @@ void run() {
                     }
                 }
                 if (mn_thread_id == -1) {
-                    LOG(FATAL) << "no available thread";
+                    for (int i = 0; i < (int)config -> cores; i++) {
+                        int current_size = fd_queue[i] -> size_approx();
+                        if (current_size < mn_size) {
+                            mn_size = current_size;
+                            mn_thread_id = i;
+                        }
+                    }
                 }
                 // VLOG(1) << "enqueue fd " << client_fd << " to thread " << mn_thread_id;
                 fd_queue[mn_thread_id] -> wait_enqueue(client_fd);

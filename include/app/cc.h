@@ -136,7 +136,7 @@ void cc(uint32_t request_id, uint32_t partition_id, exec_config *config) {
 
     graphs -> disconnect();
     double overall_time = t.from_start("overall");
-    VLOG(1) << "total_msg_size: " << (double)graphs -> total_msg_size / 1024 / 1024 << " MB";
+    VLOG(1) << "total_msg_size: " << (double)graphs -> total_msg_size.load() / 1024 / 1024 << " MB";
     VLOG(1) << "overall_time: " << (double)overall_time << " s";
     VLOG(1) << "overall_idle_time: " << (double)overall_idle_time << " s";
     if (!kill) {

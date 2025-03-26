@@ -371,10 +371,10 @@ public:
         return generate_checkerboard_partition_from_cuts(cut, result_cuts);
     }
 
-    std::vector<graph_set<ewT> *> partition(partition_result result) {
+    std::vector<graph_set<ewT> *> partition(partition_result result, bool clean) {
         std::vector<graph<ewT> *> subgraphs;
         for (auto block: result.blocks){
-            if (block.edges != 0 || block.root()) {
+            if (block.edges != 0 || block.root() || !clean) {
                 subgraphs.push_back(new graph<ewT>(block, meta));
             }
         }

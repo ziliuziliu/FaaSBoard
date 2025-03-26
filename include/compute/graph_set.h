@@ -27,7 +27,7 @@ public:
     exec_config *config;
     bool stateful;
     s3_sdk *s_sdk;
-    uint64_t total_msg_size;
+    std::atomic<uint64_t> total_msg_size;
 
     graph_set(CAAS_REDUCE_OP reduce_op, vwT base_vertex_value, exec_config *config)
         :base_vertex_value(base_vertex_value), config(config) {
@@ -35,7 +35,7 @@ public:
         out_segments = std::unordered_map<uint32_t, comm_object<vwT> *>();
         vote_object = nullptr;
         stateful = false;
-        total_msg_size = 0;
+        total_msg_size.store(0);
         VLOG(1) << "aws sdk init";
         if (config -> enable_sdk()) {
             sdk_init();
@@ -202,7 +202,7 @@ public:
             it -> second -> config = config;
         }
         vote_object -> config = config;
-        total_msg_size = 0;
+        total_msg_size.store(0);
     }
 
     void begin(int round) {
@@ -216,7 +216,7 @@ public:
     void in(int round) {
         auto in_function = [&](comm_object<vwT> *in_segment){
             in_segment -> print(round);
-            in_segment -> caas_do();
+            total_msg_size.fetch_add(in_segment -> caas_do());
             in_segment -> print(round);
         };
         std::vector<std::thread> in_threads;
@@ -231,7 +231,7 @@ public:
     void out(int round) {
         auto out_function = [&](comm_object<vwT> *out_segment){
             out_segment -> print(round);
-            out_segment -> caas_do();
+            total_msg_size.fetch_add(out_segment -> caas_do());
             out_segment -> print(round);
         };
         std::vector<std::thread> out_threads;
@@ -279,7 +279,7 @@ public:
         moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt);
         auto in_function = [&](comm_object<vwT> *in_segment){
             in_segment -> print(round);
-            total_msg_size += in_segment -> caas_do();
+            total_msg_size.fetch_add(in_segment -> caas_do());
             in_segment -> print(round);
             for (auto i : in_segment -> related_graph_index) {
                 exec_each_queue.enqueue(i);
@@ -287,7 +287,7 @@ public:
         };
         auto out_function = [&](comm_object<vwT> *out_segment){
             out_segment -> print(round);
-            total_msg_size += out_segment -> caas_do();
+            total_msg_size.fetch_add(out_segment -> caas_do());
             out_segment -> print(round);
         };
         std::vector<std::thread> in_threads, out_threads;
