@@ -34,14 +34,12 @@ public:
         out_segments = std::unordered_map<uint32_t, comm_object<vwT> *>();
         vote_object = nullptr;
         stateful = false;
-        VLOG(1) << "aws sdk init";
         if (config -> enable_sdk()) {
             sdk_init();
         }
         if (config -> enable_s3_sdk()) {
             s_sdk = new s3_sdk();
         }
-        VLOG(1) << "aws sdk and s3 init done";
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
@@ -60,8 +58,7 @@ public:
                 i, meta, item["from_source"], item["to_source"], item["from_dest"], item["to_dest"], 
                 item["edges"], reduce_op, base_vertex_value, config
             );
-            newgraph -> read_csr_s3(
-                s_sdk,
+            newgraph -> read_csr_elastic(
                 "friendster/unweighted/" + config->lambda_num + "/graph" + std::to_string(i) + ".csr.in",
                 "friendster/unweighted/" + config->lambda_num + "/graph" + std::to_string(i) + ".csr.out"
             );

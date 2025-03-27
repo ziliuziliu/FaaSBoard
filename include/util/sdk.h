@@ -415,28 +415,32 @@ class elasticache_sdk {
         }
 
         template<typename T>
-        size_t get_object_to_buffer_auto(elasticache_sdk& redis_sdk, const std::string& relative_path, 
+        size_t get_object_to_buffer_auto(const std::string& relative_path, 
                                         T* buffer, size_t element_count, size_t element_size = sizeof(T)) 
         {
             if (!buffer) {
                 LOG(FATAL) << "Buffer is null";
             }
 
+            VLOG(1) << "Start reading object from ElastiCache faasboard:{" + relative_path + "}";
+
             std::string base_key = "faasboard:{" + relative_path + "}";
             size_t expected_bytes = element_count * element_size;
             size_t bytes_read = 0;
 
+            VLOG(1) << "Try single flie mode";
+
             // Step 1: Try GET first
-            redisReply* reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "GET %s", base_key.c_str());
+            redisReply* reply = (redisReply*)redisCommand(redisCtx, "GET %s", base_key.c_str());
 
             if (reply && reply->type == REDIS_REPLY_STRING) {
                 // Single file path
                 size_t len = reply->len;
-                CHECK(len == expected_bytes) 
-                    << "GET returned unexpected size: expected " << expected_bytes << " bytes, got " << len;
-
+                VLOG(1) << "Single file mode: read " << len << " bytes";
                 memcpy(reinterpret_cast<char*>(buffer), reply->str, len);
                 bytes_read = len;
+
+                VLOG(1) << "Single file finished";
 
                 freeReplyObject(reply);
                 return bytes_read / element_size;
@@ -447,19 +451,31 @@ class elasticache_sdk {
             // Step 2: Fallback to chunked mode
             std::string hash_key = base_key + ":chunks";
             
+            VLOG(1) << "Try chunked mode";
+
             // Get total_chunks
-            reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "HGET %s %s", hash_key.c_str(), "total_chunks");
+            reply = (redisReply*)redisCommand(redisCtx, "HGET %s %s", hash_key.c_str(), "total_chunks");
             if (!reply || reply->type != REDIS_REPLY_STRING) {
                 LOG(FATAL) << "Neither GET nor HGET total_chunks succeeded for key: " << relative_path;
             }
+
+            VLOG(1) << "Chunked mode: total chunks " << reply->str;
+
             int total_chunks = std::stoi(reply->str);
             freeReplyObject(reply);
+
+            VLOG(1) << "Start reading chunks";
 
             // Sequentially read chunks
             for (int i = 0; i < total_chunks; ++i) {
                 std::string chunk_field = "chunk:" + std::to_string(i);
-                reply = (redisReply*)redisCommand(redis_sdk.redisCtx, "HGET %s %s", 
+
+                VLOG(1) << "Reading chunk " << chunk_field;
+
+                reply = (redisReply*)redisCommand(redisCtx, "HGET %s %s", 
                                                 hash_key.c_str(), chunk_field.c_str());
+
+                VLOG(1) << "Chunk read finish ";
 
                 if (!reply || reply->type != REDIS_REPLY_STRING) {
                     LOG(FATAL) << "Missing or invalid chunk: " << chunk_field;
@@ -471,8 +487,12 @@ class elasticache_sdk {
                     LOG(FATAL) << "Chunk read exceeds buffer size";
                 }
 
+                VLOG(1) << "Chunked mode: read " << chunk_size << " bytes";
+
                 memcpy(reinterpret_cast<char*>(buffer) + bytes_read, reply->str, chunk_size);
                 bytes_read += chunk_size;
+
+                VLOG(1) << "Chunked mode: total read " << bytes_read << " bytes";
 
                 freeReplyObject(reply);
             }

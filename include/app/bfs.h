@@ -83,6 +83,8 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
     graphs -> begin(0);
     bool kill = false;
     if (!config -> no_pipeline) {
+        t.from_tick();
+        return;
         for (int round = 1; ; round++) {
             std::string info_prefix = "round " + std::to_string(round) + " ";
             uint32_t activated = graphs -> vote(round);

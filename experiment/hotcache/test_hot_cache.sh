@@ -2,7 +2,7 @@
 set -euo pipefail
 
 TOTAL_RUNS=11
-INTERVAL=600  # Interval seconds, example value
+INTERVAL=300  # Interval seconds, example value
 
 # 创建基于间隔时间的日志目录
 LOG_DIR="$HOME/FaaSBoard/build/cachelog/$INTERVAL"

@@ -252,6 +252,85 @@ void read_csr_s3_util(
 }
 
 template <class T, class OffsetType>
+void read_csr_elastic_util(
+    elasticache_sdk* ela_sdk,
+    std::string in_key, std::string out_key,
+    OffsetType* in_offset, uint32_t* in_source, T* in_weight, uint32_t* in_degree,
+    OffsetType* out_offset, uint32_t* out_dest, T* out_weight, uint32_t* out_degree,
+    bool weighted, bool only_in, bool only_out, bool need_global_degree,
+    uint32_t in_vertex_cnt, uint32_t out_vertex_cnt, OffsetType total_e
+) {
+    // Read in-degree if needed
+    if (need_global_degree) {
+        VLOG(1) << "reading in degree";
+        std::string in_degree_key = in_key + ".deg";
+        
+        // Using the get_object_to_buffer_auto method from elasticache_sdk
+        ela_sdk->get_object_to_buffer_auto(in_degree_key, in_degree, out_vertex_cnt);
+    }
+
+    // Read in-edges if not only processing out-edges
+    if (!only_out) {
+        VLOG(1) << "reading in edges";
+        
+        // Compute sizes for different components
+        size_t offset_size = (out_vertex_cnt + 1) * sizeof(OffsetType);
+        size_t source_size = total_e * sizeof(uint32_t);
+        size_t weight_size = weighted ? total_e * sizeof(T) : 0;
+
+        // Allocate a single buffer to read the entire CSR structure
+        std::vector<char> in_buffer(offset_size + source_size + weight_size);
+        
+        // Read the entire CSR structure
+        ela_sdk->get_object_to_buffer_auto(in_key, in_buffer.data(), in_buffer.size());
+
+        // Set pointers to different parts of the buffer
+        in_offset = reinterpret_cast<OffsetType*>(in_buffer.data());
+        in_source = reinterpret_cast<uint32_t*>(in_buffer.data() + offset_size);
+        
+        // Set weight pointer if weighted
+        if (weighted) {
+            in_weight = reinterpret_cast<T*>(in_buffer.data() + offset_size + source_size);
+        }
+    }
+
+    // Read out-degree if needed
+    if (need_global_degree) {
+        VLOG(1) <<"reading out degree";
+        std::string out_degree_key = out_key + ".deg";
+        
+        ela_sdk->get_object_to_buffer_auto(out_degree_key, out_degree, in_vertex_cnt);
+    }
+
+    // Read out-edges if not only processing in-edges
+    if (!only_in) {
+        VLOG(1) <<"reading out edges";
+
+        // Compute sizes for different components
+        size_t offset_size = (in_vertex_cnt + 1) * sizeof(OffsetType);
+        size_t dest_size = total_e * sizeof(uint32_t);
+        size_t weight_size = weighted ? total_e * sizeof(T) : 0;
+
+        // Allocate a single buffer to read the entire CSR structure
+        std::vector<char> out_buffer(offset_size + dest_size + weight_size);
+        
+        // Read the entire CSR structure
+        ela_sdk->get_object_to_buffer_auto( out_key, out_buffer.data(), out_buffer.size());
+
+        // Set pointers to different parts of the buffer
+        out_offset = reinterpret_cast<OffsetType*>(out_buffer.data());
+        out_dest = reinterpret_cast<uint32_t*>(out_buffer.data() + offset_size);
+        
+        // Set weight pointer if weighted
+        if (weighted) {
+            out_weight = reinterpret_cast<T*>(out_buffer.data() + offset_size + dest_size);
+        }
+    }
+
+    VLOG(1) << "end reading csr from ElastiCache";
+}
+
+template <class T, class OffsetType>
 void save_csr_util(
     std::string in_path, std::string out_path, 
     OffsetType *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 

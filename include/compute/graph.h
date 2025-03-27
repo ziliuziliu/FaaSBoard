@@ -66,6 +66,7 @@ public:
     > sparse_func, dense_func;
     std::function<void(graph<vwT, ewT> *, int, uint32_t)> reduce_func;
     exec_config *config;
+    elasticache_sdk* ela_sdk;
 
     graph() {}
 
@@ -82,6 +83,9 @@ public:
         out_offset = config -> dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
         out_degree = config -> need_global_degree ? new uint32_t[to_source - from_source]() : nullptr;
         out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
+
+        ela_sdk = new elasticache_sdk("graph-hcdnu5.serverless.apse1.cache.amazonaws.com", 6379);
+
         if (weighted) {
             in_weight = config -> sparse_only ? nullptr : new ewT[edges]();
             out_weight = config -> dense_only ? nullptr : new ewT[edges]();
@@ -116,6 +120,19 @@ public:
             to_source - from_source, to_dest - from_dest, edges
         );
     } 
+
+    void read_csr_elastic(std::string in_path, std::string out_path) {
+        ela_sdk -> connect();
+        read_csr_elastic_util<ewT, uint32_t>(
+            ela_sdk,
+            in_path, out_path, 
+            in_offset, in_source, in_weight, in_degree,
+            out_offset, out_dest, out_weight, out_degree,
+            weighted, config -> dense_only, config -> sparse_only, config -> need_global_degree,
+            to_source - from_source, to_dest - from_dest, edges
+        );
+        ela_sdk -> close();
+    }
 
     void set_comm_object(comm_object<vwT> *in_segment, comm_object<vwT> *out_segment, comm_object<uint32_t> *vote_object) {
         this -> in_segment = in_segment;

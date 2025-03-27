@@ -10,12 +10,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # Redis/ElastiCache configuration
-REDIS_HOST = "faasboard-hcdnu5.serverless.apse1.cache.amazonaws.com"
+REDIS_HOST = "graph-hcdnu5.serverless.apse1.cache.amazonaws.com"
 REDIS_PORT = 6379
 REDIS_PASSWORD = None
 REDIS_DB = 0
 REDIS_PREFIX = "faasboard:"
-CHUNK_SIZE = 512 * 1024 * 1024  # 512 MB
+CHUNK_SIZE = 256 * 1024 * 1024  # 256 MB
 PIPELINE_BATCH = 4  # Flush pipeline every 4 chunks
 
 
