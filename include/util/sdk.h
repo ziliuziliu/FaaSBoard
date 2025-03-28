@@ -504,4 +504,340 @@ class elasticache_sdk {
         }
 };
 
+class elasticache_cluster_sdk {
+
+private:
+    redisContext* redisCtx;
+    std::vector<std::pair<std::string, int>> nodes; // 多个节点用于故障转移
+    std::string currentHost;
+    int currentPort;
+    bool isCluster;
+    
+public:
+    
+    elasticache_cluster_sdk() : redisCtx(nullptr), isCluster(false) {}
+    
+    // 单节点构造函数
+    elasticache_cluster_sdk(const std::string& _host, int _port) 
+        : redisCtx(nullptr)
+        , isCluster(false) {
+        nodes.push_back(std::make_pair(_host, _port));
+        currentHost = _host;
+        currentPort = _port;
+    }
+    
+    // 多节点构造函数
+    elasticache_cluster_sdk(const std::vector<std::pair<std::string, int>>& _nodes) 
+        : redisCtx(nullptr)
+        , nodes(_nodes)
+        , isCluster(false) {
+        if (!nodes.empty()) {
+            currentHost = nodes[0].first;
+            currentPort = nodes[0].second;
+        }
+    }
+    
+    ~elasticache_cluster_sdk() {
+        if (redisCtx) {
+            redisFree(redisCtx);
+        }
+    }
+    
+    // 添加备用节点
+    void add_node(const std::string& host, int port) {
+        nodes.push_back(std::make_pair(host, port));
+    }
+    
+    bool connect() {
+        return connect_to_current_node();
+    }
+    
+    bool connect_to_current_node() {
+        // 释放旧连接（如果存在）
+        if (redisCtx) {
+            redisFree(redisCtx);
+            redisCtx = nullptr;
+        }
+        
+        // 连接到当前节点
+        redisCtx = redisConnect(currentHost.c_str(), currentPort);
+        if (redisCtx == nullptr || redisCtx->err) {
+            std::cerr << "Failed to connect to Redis at " << currentHost << ":" << currentPort 
+                      << " - " << (redisCtx ? redisCtx->errstr : "unknown error") << std::endl;
+            return false;
+        }
+        
+        // 设置 SSL/TLS
+        redisSSLContext* sslContext = redisCreateSSLContext(
+            "cacert.pem",  // cert file
+            nullptr,       // key file
+            nullptr,       // ca cert
+            nullptr,       // ca path
+            nullptr,       // server name
+            nullptr        // error
+        );
+        
+        if (!sslContext) {
+            std::cerr << "Failed to create SSL context" << std::endl;
+            redisFree(redisCtx);
+            redisCtx = nullptr;
+            return false;
+        }
+        
+        if (redisInitiateSSLWithContext(redisCtx, sslContext) != REDIS_OK) {
+            std::cerr << "Failed to establish SSL connection: " << redisCtx->errstr << std::endl;
+            redisFree(redisCtx);
+            redisCtx = nullptr;
+            redisFreeSSLContext(sslContext);
+            return false;
+        }
+        
+        redisFreeSSLContext(sslContext);
+        
+        // 检查是否为集群
+        redisReply* reply = (redisReply*)redisCommand(redisCtx, "CLUSTER INFO");
+        if (reply && reply->type != REDIS_REPLY_ERROR) {
+            isCluster = true;
+            std::cout << "Connected to Redis Cluster at " << currentHost << ":" << currentPort << std::endl;
+        } else {
+            std::cout << "Connected to Redis at " << currentHost << ":" << currentPort << std::endl;
+        }
+        if (reply) freeReplyObject(reply);
+        
+        return true;
+    }
+    
+    // 尝试故障转移到下一个节点
+    bool failover_to_next_node() {
+        if (nodes.size() <= 1) {
+            return false; // 没有备用节点
+        }
+        
+        // 查找当前节点索引
+        size_t current_idx = 0;
+        for (size_t i = 0; i < nodes.size(); i++) {
+            if (nodes[i].first == currentHost && nodes[i].second == currentPort) {
+                current_idx = i;
+                break;
+            }
+        }
+        
+        // 切换到下一个节点
+        size_t next_idx = (current_idx + 1) % nodes.size();
+        currentHost = nodes[next_idx].first;
+        currentPort = nodes[next_idx].second;
+        
+        std::cout << "Attempting failover to " << currentHost << ":" << currentPort << std::endl;
+        return connect_to_current_node();
+    }
+    
+    // 执行命令并自动处理故障转移
+    redisReply* execute_command(const char* format, ...) {
+        if (!redisCtx) {
+            std::cerr << "Redis context is not initialized." << std::endl;
+            return nullptr;
+        }
+        
+        va_list ap;
+        va_start(ap, format);
+        redisReply* reply = (redisReply*)redisvCommand(redisCtx, format, ap);
+        va_end(ap);
+        
+        // 检查连接错误并尝试故障转移
+        if (reply == nullptr && redisCtx->err) {
+            std::cerr << "Redis command failed: " << redisCtx->errstr << std::endl;
+            
+            if (redisCtx->err == REDIS_ERR_IO || redisCtx->err == REDIS_ERR_EOF) {
+                std::cerr << "Connection error, attempting failover..." << std::endl;
+                
+                if (failover_to_next_node()) {
+                    // 重试命令
+                    va_start(ap, format);
+                    reply = (redisReply*)redisvCommand(redisCtx, format, ap);
+                    va_end(ap);
+                }
+            }
+        }
+        
+        return reply;
+    }
+    
+    bool setnx(const std::string& key, const std::string& value) {
+        if (!redisCtx) {
+            std::cerr << "Redis context is not initialized." << std::endl;
+            return false;
+        }
+        
+        redisReply* reply = execute_command("SETNX %s %s", key.c_str(), value.c_str());
+        if (!reply) {
+            return false;
+        }
+        
+        // Redis returns 1 if the key was set, 0 if it already exists
+        bool success = (reply->type == REDIS_REPLY_INTEGER && reply->integer == 1);
+        
+        freeReplyObject(reply);
+        return success;
+    }
+    
+    bool setList(const std::string& key, const std::vector<std::string>& values) {
+        if (!redisCtx) {
+            std::cerr << "Redis context is not initialized." << std::endl;
+            return false;
+        }
+        
+        redisReply* reply = execute_command("DEL %s", key.c_str());
+        if (!reply) {
+            return false;
+        }
+        freeReplyObject(reply);
+        
+        for (const auto& value : values) {
+            reply = execute_command("RPUSH %s %s", key.c_str(), value.c_str());
+            if (!reply) {
+                return false;
+            }
+            freeReplyObject(reply);
+        }
+        
+        return true;
+    }
+    
+    std::string get(const std::string& key) {
+        if (!redisCtx) {
+            std::cerr << "Redis context is not initialized." << std::endl;
+            return "";
+        }
+        
+        redisReply* reply = execute_command("GET %s", key.c_str());
+        if (!reply || reply->type != REDIS_REPLY_STRING) {
+            std::cerr << "GET command failed or key not found." << std::endl;
+            if (reply) freeReplyObject(reply);
+            return "";
+        }
+        
+        std::string value = reply->str;
+        freeReplyObject(reply);
+        return value;
+    }
+    
+    std::vector<std::string> getList(const std::string& key) {
+        std::vector<std::string> values;
+        
+        if (!redisCtx) {
+            std::cerr << "Redis context is not initialized." << std::endl;
+            return values;
+        }
+        
+        redisReply* reply = execute_command("LRANGE %s 0 -1", key.c_str());
+        if (!reply || reply->type != REDIS_REPLY_ARRAY) {
+            std::cerr << "LRANGE command failed or key not found." << std::endl;
+            if (reply) freeReplyObject(reply);
+            return values;
+        }
+        
+        for (size_t i = 0; i < reply->elements; i++) {
+            values.push_back(reply->element[i]->str);
+        }
+        
+        freeReplyObject(reply);
+        return values;
+    }
+    
+    void close() {
+        if (redisCtx) {
+            redisFree(redisCtx);
+            redisCtx = nullptr;
+        }
+    }
+    
+    template<typename T>
+    size_t get_object_to_buffer_auto(const std::string& relative_path, 
+                                    T* buffer, size_t element_count, size_t element_size = sizeof(T)) 
+    {
+        if (!buffer) {
+            LOG(FATAL) << "Buffer is null";
+        }
+        
+        VLOG(1) << "Start reading object from ElastiCache faasboard:{" + relative_path + "}";
+        
+        std::string base_key = "faasboard:{" + relative_path + "}";
+        size_t expected_bytes = element_count * element_size;
+        size_t bytes_read = 0;
+        
+        VLOG(1) << "Try single file mode";
+        
+        // Step 1: Try GET first
+        redisReply* reply = execute_command("GET %s", base_key.c_str());
+        
+        if (reply && reply->type == REDIS_REPLY_STRING) {
+            // Single file path
+            size_t len = reply->len;
+            VLOG(1) << "Single file mode: read " << len << " bytes";
+            memcpy(reinterpret_cast<char*>(buffer), reply->str, len);
+            bytes_read = len;
+            
+            VLOG(1) << "Single file finished";
+            
+            freeReplyObject(reply);
+            return bytes_read / element_size;
+        }
+        
+        if (reply) freeReplyObject(reply); // Always cleanup
+        
+        // Step 2: Fallback to chunked mode
+        std::string hash_key = base_key + ":chunks";
+        
+        VLOG(1) << "Try chunked mode";
+        
+        // Get total_chunks
+        reply = execute_command("HGET %s %s", hash_key.c_str(), "total_chunks");
+        if (!reply || reply->type != REDIS_REPLY_STRING) {
+            LOG(FATAL) << "Neither GET nor HGET total_chunks succeeded for key: " << relative_path;
+        }
+        
+        VLOG(1) << "Chunked mode: total chunks " << reply->str;
+        
+        int total_chunks = std::stoi(reply->str);
+        freeReplyObject(reply);
+        
+        VLOG(1) << "Start reading chunks";
+        
+        // Sequentially read chunks
+        for (int i = 0; i < total_chunks; ++i) {
+            std::string chunk_field = "chunk:" + std::to_string(i);
+            
+            VLOG(1) << "Reading chunk " << chunk_field;
+            
+            reply = execute_command("HGET %s %s", hash_key.c_str(), chunk_field.c_str());
+            
+            VLOG(1) << "Chunk read finish ";
+            
+            if (!reply || reply->type != REDIS_REPLY_STRING) {
+                LOG(FATAL) << "Missing or invalid chunk: " << chunk_field;
+            }
+            
+            size_t chunk_size = reply->len;
+            if (bytes_read + chunk_size > expected_bytes) {
+                freeReplyObject(reply);
+                LOG(FATAL) << "Chunk read exceeds buffer size";
+            }
+            
+            VLOG(1) << "Chunked mode: read " << chunk_size << " bytes";
+            
+            memcpy(reinterpret_cast<char*>(buffer) + bytes_read, reply->str, chunk_size);
+            bytes_read += chunk_size;
+            
+            VLOG(1) << "Chunked mode: total read " << bytes_read << " bytes";
+            
+            freeReplyObject(reply);
+        }
+        
+        CHECK(bytes_read == expected_bytes) 
+            << "Chunked read mismatch: expected " << expected_bytes << ", got " << bytes_read;
+        
+        return bytes_read / element_size;
+    }
+};
+
 #endif

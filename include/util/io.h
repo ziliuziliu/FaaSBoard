@@ -253,7 +253,7 @@ void read_csr_s3_util(
 
 template <class T, class OffsetType>
 void read_csr_elastic_util(
-    elasticache_sdk* ela_sdk,
+    elasticache_cluster_sdk* ela_sdk,
     std::string in_key, std::string out_key,
     OffsetType* in_offset, uint32_t* in_source, T* in_weight, uint32_t* in_degree,
     OffsetType* out_offset, uint32_t* out_dest, T* out_weight, uint32_t* out_degree,

@@ -66,7 +66,7 @@ public:
     > sparse_func, dense_func;
     std::function<void(graph<vwT, ewT> *, int, uint32_t)> reduce_func;
     exec_config *config;
-    elasticache_sdk* ela_sdk;
+    elasticache_cluster_sdk* ela_sdk;
 
     graph() {}
 
@@ -84,7 +84,19 @@ public:
         out_degree = config -> need_global_degree ? new uint32_t[to_source - from_source]() : nullptr;
         out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
 
-        ela_sdk = new elasticache_sdk("graph-hcdnu5.serverless.apse1.cache.amazonaws.com", 6379);
+        std::vector<std::pair<std::string, int>> nodes = {
+            {"graph-0001-001.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0001-002.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0001-003.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0002-001.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0002-002.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0002-003.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0003-001.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0003-002.graph.hcdnu5.apse1.cache.amazonaws.com", 6379},
+            {"graph-0003-003.graph.hcdnu5.apse1.cache.amazonaws.com", 6379}
+        };
+
+        ela_sdk = new elasticache_cluster_sdk(nodes);
 
         if (weighted) {
             in_weight = config -> sparse_only ? nullptr : new ewT[edges]();
