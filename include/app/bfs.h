@@ -79,8 +79,8 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
             }
         }
     );
-    graphs -> connect(request_id, partition_id);
-    graphs -> begin(0);
+    // graphs -> connect(request_id, partition_id);
+    // graphs -> begin(0);
     bool kill = false;
     if (!config -> no_pipeline) {
         t.from_tick();
