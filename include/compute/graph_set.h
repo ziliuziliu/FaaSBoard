@@ -37,12 +37,16 @@ public:
         stateful = false;
         total_msg_size.store(0);
         VLOG(1) << "aws sdk init";
-        if (config -> enable_sdk()) {
-            sdk_init();
-        }
-        if (config -> enable_s3_sdk()) {
-            s_sdk = new s3_sdk();
-        }
+        sdk_init();
+        // if (config -> enable_sdk()) {
+        //     VLOG(1) << "graph_set::sdk_init";
+        //     sdk_init();
+        // }
+        s_sdk = new s3_sdk();
+        // if (config -> enable_s3_sdk()) {
+        //     VLOG(1) << "new s3_sdk";
+        //     s_sdk = new s3_sdk();
+        // }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
@@ -147,22 +151,25 @@ public:
     void connect(uint32_t request_id, uint32_t partition_id) {
         VLOG(1) << "connect to proxy";
         for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
-            it -> second -> caas_connect(request_id, partition_id);
+            it -> second -> request_id = request_id;
+            it -> second -> data[0] = request_id;
         }
         for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
-            it -> second -> caas_connect(request_id, partition_id);
+            it -> second -> request_id = request_id;
+            it -> second -> data[0] = request_id;
         }
+
         vote_object -> caas_connect(request_id, partition_id);
     }
 
     void disconnect() {
         VLOG(1) << "disconnect with proxy";
-        for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
-            it -> second -> caas_disconnect();
-        }
-        for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
-            it -> second -> caas_disconnect();
-        }
+        // for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
+        //     it -> second -> caas_disconnect();
+        // }
+        // for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
+        //     it -> second -> caas_disconnect();
+        // }
         vote_object -> caas_disconnect();
     }
 
@@ -216,7 +223,7 @@ public:
     void in(int round) {
         auto in_function = [&](comm_object<vwT> *in_segment){
             in_segment -> print(round);
-            total_msg_size.fetch_add(in_segment -> caas_do());
+            total_msg_size.fetch_add(in_segment -> caas_do(false, round, -1));
             in_segment -> print(round);
         };
         std::vector<std::thread> in_threads;
@@ -231,7 +238,7 @@ public:
     void out(int round) {
         auto out_function = [&](comm_object<vwT> *out_segment){
             out_segment -> print(round);
-            total_msg_size.fetch_add(out_segment -> caas_do());
+            total_msg_size.fetch_add(out_segment -> caas_do(false, round, -1));
             out_segment -> print(round);
         };
         std::vector<std::thread> out_threads;
@@ -279,7 +286,7 @@ public:
         moodycamel::BlockingConcurrentQueue<int> exec_each_queue(graph_cnt);
         auto in_function = [&](comm_object<vwT> *in_segment){
             in_segment -> print(round);
-            total_msg_size.fetch_add(in_segment -> caas_do());
+            total_msg_size.fetch_add(in_segment -> caas_do(false, round, -1));
             in_segment -> print(round);
             for (auto i : in_segment -> related_graph_index) {
                 exec_each_queue.enqueue(i);
@@ -287,7 +294,7 @@ public:
         };
         auto out_function = [&](comm_object<vwT> *out_segment){
             out_segment -> print(round);
-            total_msg_size.fetch_add(out_segment -> caas_do());
+            total_msg_size.fetch_add(out_segment -> caas_do(false, round, -1));
             out_segment -> print(round);
         };
         std::vector<std::thread> in_threads, out_threads;

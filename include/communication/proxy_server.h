@@ -548,9 +548,7 @@ void spin() {
 void run() {
     config = exec_config::build_by_flags();
     VLOG(1) << "aws sdk init";
-    if (config -> enable_sdk()) {
-        sdk_init();
-    }
+    sdk_init();
     if (config -> enable_lambda_sdk()) {
         l_sdk = new lambda_sdk();
         VLOG(1) << "dynamic invoke enabled";

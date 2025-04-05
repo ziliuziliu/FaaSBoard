@@ -191,6 +191,7 @@ public:
             work_threads.push_back(std::thread(exec_func, i));
         }
         for (int i = 0; i < config -> cores; i++) {
+            VLOG(1) << "core i = " << i;
             work_threads[i].join();
         }
     }
@@ -214,6 +215,11 @@ public:
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             timer t;
             t.tick("sparse mode");
+            VLOG(1) << "round = " << round
+                << "; in_segment -> start_index = " << in_segment -> start_index
+                << "; in_segment -> vec_len =" << in_segment -> vec_len 
+                << "; start_source = " << start_source
+                << "; end_source = " << end_source;
             work_stealing(round, start_source, end_source, [this](int round, uint32_t start, uint32_t end){
                 exec_sparse(round, start, end);
             });

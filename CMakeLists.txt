@@ -45,6 +45,8 @@ add_executable(meta_server ${CMAKE_SOURCE_DIR}/test/meta_server.cpp)
 add_executable(proxy_server ${CMAKE_SOURCE_DIR}/test/proxy_server.cpp)
 add_executable(correctness_test ${CMAKE_SOURCE_DIR}/test/others/correctness_test.cpp)
 add_executable(txt2csr ${CMAKE_SOURCE_DIR}/test/preprocess/txt2csr.cpp)
+add_executable(s3_test ${CMAKE_SOURCE_DIR}/test/s3_test.cpp)
+
 
 # Link
 target_link_libraries(preprocess_and_save PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
@@ -57,9 +59,11 @@ target_link_libraries(lambda_pr PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX g
 target_link_libraries(lambda_sssp PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(lambda_cc PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(meta_server PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
-target_link_libraries(proxy_server PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(proxy_server PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(correctness_test PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
 target_link_libraries(txt2csr PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(s3_test PRIVATE hiredis hiredis_ssl OpenMP::OpenMP_CXX glog::glog gflags AWS::aws-lambda-runtime ${AWSSDK_LINK_LIBRARIES})
+
 
 # create zip
 aws_lambda_package_target(lambda_bfs)
