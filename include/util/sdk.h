@@ -11,6 +11,9 @@
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/client/DefaultRetryStrategy.h>
 #include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/Delete.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -94,11 +97,12 @@ struct s3_sdk {
         request.SetKey(object_name);
         Aws::S3::Model::GetObjectOutcome outcome = s3_client -> GetObject(request);
         if (!outcome.IsSuccess()) {
-            const auto& error = outcome.GetError();
-            LOG(FATAL) << "error getting object " << object_name
-                       << " on bucket " << bucket_name
-                       << " exception " << error.GetExceptionName()
-                       << " message " << error.GetMessage();        
+            // const auto& error = outcome.GetError();
+            // LOG(WARNING) << "Failed to get object '" << object_name
+            //              << "' from bucket '" << bucket_name
+            //              << "'. Exception: " << error.GetExceptionName()
+            //              << ", message: " << error.GetMessage();
+            return {nullptr, 0};
         }
         auto &data = outcome.GetResultWithOwnership().GetBody();
         auto len = outcome.GetResultWithOwnership().GetContentLength();
@@ -107,16 +111,21 @@ struct s3_sdk {
         return std::make_pair(buffer, len);
     }
     
-    void put_object(std::string bucket_name, std::string object_name, char *data, uint32_t len) {
+    void put_object(std::string bucket_name, std::string object_name, char* data, uint32_t len) {
         Aws::S3::Model::PutObjectRequest request;
         request.SetBucket(bucket_name);
         request.SetKey(object_name);
+
+        // Create a string stream to hold the data
         auto body = Aws::MakeShared<Aws::StringStream>(
             "InputStream", std::stringstream::in | std::stringstream::out | std::stringstream::binary
         );
-        body -> write(data, len);
+        body->write(data, len);
         request.SetBody(body);
-        auto outcome = s3_client -> PutObject(request);
+
+
+        // Execute the PutObject operation
+        auto outcome = s3_client->PutObject(request);
         if (!outcome.IsSuccess()) {
             const auto& error = outcome.GetError();
             LOG(FATAL) << "error putting object " << object_name
@@ -124,8 +133,27 @@ struct s3_sdk {
                        << " exception " << error.GetExceptionName()
                        << " message " << error.GetMessage();
         }
+        // } else {
+        //     LOG(INFO) << "Successfully put object: " << object_name << " to bucket: " << bucket_name;
+        // }
     }
 
+    void delete_all_objects(const std::string& bucket_name) {
+        auto objects = list_objects(bucket_name);
+        for (const auto& key : objects) {
+            Aws::S3::Model::DeleteObjectRequest request;
+            request.SetBucket(bucket_name);
+            request.SetKey(key);
+    
+            auto outcome = s3_client->DeleteObject(request);
+            if (!outcome.IsSuccess()) {
+                const auto& error = outcome.GetError();
+                LOG(FATAL) << "error deleting object " << key
+                             << " exception " << error.GetExceptionName()
+                             << " message " << error.GetMessage();
+            }
+        }
+    }
 };
 
 struct lambda_sdk {

@@ -4,7 +4,7 @@ import datetime
 def get_durations(graph, application, index):
     global start_time, client
     resp = client.filter_log_events(
-        logGroupName='/aws/lambda/{}_{}_{}'.format(graph, application, index),
+        logGroupName='/aws/lambda/s3_{}_{}_{}'.format(graph, application, index),
         startTime=int(start_time * 1000),
     )
     events = resp['events']
@@ -20,13 +20,13 @@ def get_durations(graph, application, index):
     return durations
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 3, 19, 10, 23, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 4, 10, 16, 17, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     
     all_durations = []
     
-    graph_name = 'rmat27'
-    application = 'cc'
+    graph_name = 'twitter'
+    application = 'bfs'
 
     if graph_name == 'livejournal':
         if application == 'bfs' or application == 'pr':

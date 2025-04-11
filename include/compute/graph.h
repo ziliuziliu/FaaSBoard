@@ -160,8 +160,8 @@ public:
         auto exec_func = [&](int index){
             VLOG(1) << "thread " << index << " [curr: " 
                 << thread_states[index] -> curr 
-                << ", end: " << thread_states[index] -> end 
-                << "], total edges: " << in_offset[end_v - start_v];
+                << ", end: " << thread_states[index] -> end
+                << "]";
             while (true) {
                 uint32_t begin = thread_states[index] -> curr.fetch_add(64);
                 if (begin >= thread_states[index] -> end) {
@@ -191,7 +191,6 @@ public:
             work_threads.push_back(std::thread(exec_func, i));
         }
         for (int i = 0; i < config -> cores; i++) {
-            VLOG(1) << "core i = " << i;
             work_threads[i].join();
         }
     }
@@ -215,11 +214,6 @@ public:
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             timer t;
             t.tick("sparse mode");
-            VLOG(1) << "round = " << round
-                << "; in_segment -> start_index = " << in_segment -> start_index
-                << "; in_segment -> vec_len =" << in_segment -> vec_len 
-                << "; start_source = " << start_source
-                << "; end_source = " << end_source;
             work_stealing(round, start_source, end_source, [this](int round, uint32_t start, uint32_t end){
                 exec_sparse(round, start, end);
             });

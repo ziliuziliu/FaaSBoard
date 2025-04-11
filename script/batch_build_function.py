@@ -17,7 +17,7 @@ def build_function(args, index, dockerfile, aws_config, application_name, functi
     os.system('unzip ../build/lambda_{}.zip -d {}'.format(application_name, TEMP_DIR))
     os.system('cp cacert.pem {}'.format(TEMP_DIR))
     print('====== Building Image ======')
-    image_uri = '{}.dkr.ecr.{}.amazonaws.com/lambda-{}-{}'.format(aws_config['account_id'], aws_config['region'], args.graph_name, function_name)
+    image_uri = '{}.dkr.ecr.{}.amazonaws.com/lambda-s3-{}-{}'.format(aws_config['account_id'], aws_config['region'], args.graph_name, function_name)
     image_id = subprocess.run(["docker", "images", "-q", f'image_uri:{index}'], text=True, capture_output=True, check=False).stdout.strip()
     if image_id:
         print(f"Found image ID: {image_id}")
@@ -34,14 +34,14 @@ def build_function(args, index, dockerfile, aws_config, application_name, functi
         index
     ))
     print('====== Upload to ECR ======')
-    os.system('aws ecr batch-delete-image --repository-name lambda-{}-{} --image-ids imageTag={} --region {}'.format(args.graph_name, function_name, index, aws_config['region']))
+    os.system('aws ecr batch-delete-image --repository-name lambda-s3-{}-{} --image-ids imageTag={} --region {}'.format(args.graph_name, function_name, index, aws_config['region']))
     time.sleep(10)
     os.system('docker push {}:{}'.format(image_uri, index))
     time.sleep(10)
     print('====== Create Lambda Function ======')
-    os.system('aws lambda delete-function --function-name {}_{}_{} --region {}'.format(args.graph_name, function_name, index, aws_config['region']))
+    os.system('aws lambda delete-function --function-name s3_{}_{}_{} --region {}'.format(args.graph_name, function_name, index, aws_config['region']))
     time.sleep(10)
-    os.system('aws lambda create-function --function-name {}_{}_{} --role {} --package-type Image --code ImageUri={}:{} --timeout 900 --memory-size 3538 --vpc-config SubnetIds={},SecurityGroupIds={} --region {}'.format(
+    os.system('aws lambda create-function --function-name s3_{}_{}_{} --role {} --package-type Image --code ImageUri={}:{} --timeout 900 --memory-size 3538 --vpc-config SubnetIds={},SecurityGroupIds={} --region {}'.format(
         args.graph_name,
         function_name,
         index,
@@ -68,8 +68,8 @@ def main():
     dockerfile = None
     # os.system('aws ecr create-repository --repository-name lambda-{}'.format(function_name))
     os.system('aws ecr get-login-password --region {} | docker login --username AWS --password-stdin {}.dkr.ecr.{}.amazonaws.com'.format(aws_config['region'], aws_config['account_id'], aws_config['region']))
-    for func_name in ['cc']:
-        os.system('aws ecr create-repository --repository-name lambda-{}-{}'.format(args.graph_name ,func_name))
+    for func_name in ['bfs']:
+        os.system('aws ecr create-repository --repository-name lambda-s3-{}-{}'.format(args.graph_name ,func_name))
         index = 0
         print(index)
         detailed_dir = ''

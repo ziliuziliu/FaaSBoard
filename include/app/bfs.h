@@ -9,6 +9,7 @@
 #include "util/types.h"
 #include "util/atomic.h"
 #include "util/log.h"
+#include "util/sdk.h"
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
@@ -137,6 +138,12 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
         graphs -> save_result(config -> save_mode, config -> graph_dir);
         t.from_tick();
     }
+    // if (partition_id == 0) {
+    //     t.tick("delete s3_objects");
+    //     s3_sdk *s_sdk = new s3_sdk();
+    //     s_sdk -> delete_all_objects(config -> s3_bucket);
+    //     t.from_tick();
+    // }
 }
 
 #endif

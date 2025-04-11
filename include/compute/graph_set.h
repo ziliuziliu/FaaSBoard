@@ -38,15 +38,7 @@ public:
         total_msg_size.store(0);
         VLOG(1) << "aws sdk init";
         sdk_init();
-        // if (config -> enable_sdk()) {
-        //     VLOG(1) << "graph_set::sdk_init";
-        //     sdk_init();
-        // }
         s_sdk = new s3_sdk();
-        // if (config -> enable_s3_sdk()) {
-        //     VLOG(1) << "new s3_sdk";
-        //     s_sdk = new s3_sdk();
-        // }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);

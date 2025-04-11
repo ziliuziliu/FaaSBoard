@@ -17,7 +17,7 @@
 #include <string>
 
 #define MAX_RETRIES 500
-#define RETRY_INTERVAL_MS 10
+#define RETRY_INTERVAL_MS 20
 
 template <class T>
 CAAS_TYPE caas_get_data_type() {
@@ -198,6 +198,7 @@ public:
     elasticache_sdk *e_sdk;
     s3_sdk *s_sdk;
     std::string bucket_name;
+    uint32_t partition_id_identity;
 
     proxy() {}
 
@@ -213,7 +214,7 @@ public:
         e_sdk = new elasticache_sdk(config -> elasticache_host, 6379);
         bucket_name = config -> s3_bucket;
         s_sdk = new s3_sdk();
-        VLOG(1) << "proxy::config -> s3_bucket = " << bucket_name; 
+        partition_id_identity = config -> partition_id;
     }
 
     ~proxy() {
@@ -282,21 +283,17 @@ public:
             }
         }
         uint32_t msg_size = 0;
-        VLOG(1) << "this -> request_id = " << this -> request_id;
+       //  VLOG(1) << "this -> request_id = " << this -> request_id;
         std::string s3_prefix = std::to_string(this -> request_id) + "_" + std::to_string(this -> object_id) + "_" + std::to_string(round);
-        VLOG(1) << "s3_prefix = " << s3_prefix;
+        // VLOG(1) << "s3_prefix = " << s3_prefix;
 
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
-                    VLOG(1) << "root::come_in broadcast for obejct " << this -> object_id;
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
-                    VLOG(1) << "segment_type = " << uint32_t(segment_type);
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    VLOG(1) << "segment.second = " << segment.second;
                     std::string s3_op_name = s3_prefix + "_broadcast";
                     this -> s_sdk -> put_object(bucket_name, s3_op_name, segment.first, segment.second);
-                    VLOG(1) << "success broadcast for " << s3_op_name;
                     msg_size = segment.second;
                     // caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
@@ -305,20 +302,23 @@ public:
                     break;
                 }
                 case CAAS_OP::MASKED_REDUCE: {
-                    VLOG(1) << "root::come_in reduce for obejct " << this -> object_id;
                     int collected = 0;
                     const int expected = this -> instances - 1;
-                    VLOG(1) << "masked_reduce::expected = " << expected;
-                    std::string s3_op_prefix = s3_prefix + "_reduce_";
+                    std::string s3_op_prefix = s3_prefix + "_reduce_"; 
+                    std::unordered_set<std::string> processed_objects;
+
                     while (collected < expected) {
                         std::vector<std::string> all_objects = this -> s_sdk -> list_objects(bucket_name);
                         for (auto object_name : all_objects) {
-                            if (object_name.find(s3_op_prefix) != std::string::npos) {
-                                std::pair<char *, size_t> temp_segment = this -> s_sdk -> get_object(bucket_name, object_name);
-                                caas_reduce_adaptive_segment<T>(this, temp_segment.first, temp_segment.second);
-                                collected++;
-                                msg_size = temp_segment.second;
-                                VLOG(1) << "found one, current collected = " << collected;
+                            if (object_name.find(s3_op_prefix) != std::string::npos &&
+                                processed_objects.find(object_name) == processed_objects.end()) {
+                                                                std::pair<char *, size_t> temp_segment = this -> s_sdk -> get_object(bucket_name, object_name);
+                                if (temp_segment.first != nullptr) {
+                                    caas_reduce_adaptive_segment<T>(this, temp_segment.first, temp_segment.second);
+                                    collected++;
+                                    msg_size = temp_segment.second;
+                                    processed_objects.insert(object_name);
+                                }
                                 delete [] temp_segment.first;
                             }
                         }
@@ -337,22 +337,16 @@ public:
         } else {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
-                    VLOG(1) << "leaf::come_in broadcast for obejct " << this -> object_id;
                     std::string s3_op_name = s3_prefix + "_broadcast";
                     int retry_count = 0;
                     std::pair<char *, uint32_t> segment{nullptr, 0};
-                    VLOG(1) << "sleep out";
                     while (retry_count < MAX_RETRIES) {
-                        VLOG(1) << "try to get_object";
                         segment = this -> s_sdk -> get_object(bucket_name, s3_op_name);
-                        VLOG(1) << "after get_object";
                         if (segment.first != nullptr){
-                            VLOG(1) << "gained object from s3 for " << s3_op_name;
                             break;
                         }
                         retry_count++;
                         if (retry_count < MAX_RETRIES) {
-                            VLOG(1) << "retry = " << retry_count;
                             std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_INTERVAL_MS));
                         }
                     }
@@ -366,12 +360,10 @@ public:
                     break;
                 }
                 case CAAS_OP::MASKED_REDUCE: {
-                    VLOG(1) << "leaf::come_in reduce for obejct " << this -> object_id;
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     msg_size = segment.second;
-                    std::string s3_op_name = s3_prefix + "_reduce_" + std::to_string(this -> start_index);
-                    VLOG(1) << "masked_reduce:: " << s3_op_name;
+                    std::string s3_op_name = s3_prefix + "_reduce_" + std::to_string(this -> partition_id_identity);
                     this -> s_sdk -> put_object(bucket_name, s3_op_name, segment.first, segment.second);
                     // caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
