@@ -26,6 +26,7 @@
 #include <vector>
 #include <chrono>
 #include <fstream>
+#include <utility>
 
 void sdk_init() {
     Aws::SDKOptions options;
@@ -305,7 +306,7 @@ class elasticache_sdk {
     
             // Set up SSL/TLS
             redisSSLContext* sslContext = redisCreateSSLContext(
-                "cacert.pem",  // cert file
+                "../script/cacert.pem",  // cert file
                 nullptr,  // key file
                 nullptr,  // ca cert
                 nullptr,  // ca path
@@ -384,7 +385,127 @@ class elasticache_sdk {
     
             return true;
         }
+
+        bool setBinaryData(const std::string& key, const char* data, size_t length) {
+            if (!redisCtx) {
+                std::cerr << "[ERROR] Redis context not initialized" << std::endl;
+                return false;
+            }
+        
+            if (!data && length > 0) {
+                std::cerr << "[ERROR] Invalid data pointer (nullptr with non-zero length)" << std::endl;
+                return false;
+            }
+        
+            redisReply* reply = nullptr;
+            try {
+                reply = (redisReply*)redisCommand(redisCtx, "SET %s %b", key.c_str(), data, length);
+                
+                if (!reply) {
+                    std::cerr << "[ERROR] Failed to execute SET command: " 
+                             << (redisCtx->err ? redisCtx->errstr : "unknown error") << std::endl;
+                    return false;
+                }
+        
+                switch (reply->type) {
+                    case REDIS_REPLY_STATUS:
+                        if (strcasecmp(reply->str, "OK") != 0) {
+                            std::cerr << "[WARNING] Unexpected reply status: " << reply->str << std::endl;
+                        }
+                        break;
+                        
+                    case REDIS_REPLY_ERROR:
+                        std::cerr << "[ERROR] Redis server error: " << reply->str << std::endl;
+                        freeReplyObject(reply);
+                        return false;
+                        
+                    case REDIS_REPLY_NIL:
+                        std::cerr << "[ERROR] Unexpected NIL reply for SET command" << std::endl;
+                        freeReplyObject(reply);
+                        return false;
+                        
+                    default:
+                        std::cerr << "[ERROR] Unexpected reply type: " << reply->type << std::endl;
+                        freeReplyObject(reply);
+                        return false;
+                }
+                
+            } catch (const std::exception& e) {
+                std::cerr << "[EXCEPTION] Exception during Redis operation: " << e.what() << std::endl;
+                if (reply) freeReplyObject(reply);
+                return false;
+            }
+        
+            freeReplyObject(reply);
+            
+            if (redisCtx->err) {
+                std::cerr << "[WARNING] Redis context error after operation: " << redisCtx->errstr << std::endl;
+                return false;
+            }
+        
+            return true;
+        }
+        
+        std::pair<char*, size_t> getBinaryData(const std::string& key) {
+            if (!redisCtx) {
+                std::cerr << "Redis context not initialized" << std::endl;
+                return {nullptr, 0};
+            }
+
+            redisReply* reply = (redisReply*)redisCommand(redisCtx, "GET %s", key.c_str());
+            if (!reply) {
+                std::cerr << "getBinaryData command failed" << std::endl;
+                return {nullptr, 0};
+            }
+
+            size_t length = 0;
+            char *data = nullptr;
     
+            switch (reply->type) {
+                case REDIS_REPLY_STRING:
+                    length = reply->len;
+                    data = new char[length];
+                    memcpy(data, reply->str, length);
+                    break;
+            
+                default:
+                    break;
+                }
+
+            freeReplyObject(reply);
+            return {data, length};
+        }
+
+        std::vector<std::string> listAllKeys() {
+            if (!redisCtx) {
+                std::cerr << "Redis context not initialized" << std::endl;
+                return {};
+            }
+        
+            std::vector<std::string> allKeys;
+            std::string cursor = "0";
+        
+            do {
+                redisReply* reply = (redisReply*)redisCommand(redisCtx, "SCAN %s", cursor.c_str());
+                if (!reply || reply->elements != 2) {
+                    std::cerr << "listAllKeys command failed" << std::endl;
+                    break;
+                }
+                cursor = reply->element[0]->str;
+                redisReply* keysReply = reply->element[1];
+
+                if (keysReply->type == REDIS_REPLY_ARRAY) {
+                    for (size_t i = 0; i < keysReply->elements; ++i) {
+                        allKeys.push_back(std::string(keysReply->element[i]->str, keysReply->element[i]->len));
+                    }
+                }
+        
+                freeReplyObject(reply);
+            } while (cursor != "0");
+        
+            return allKeys;
+        }
+
         std::string get(const std::string& key) {
             if (!redisCtx) {
                 std::cerr << "Redis context is not initialized." << std::endl;

@@ -16,8 +16,8 @@
 #include <unistd.h>
 #include <string>
 
-#define MAX_RETRIES 500
-#define RETRY_INTERVAL_MS 20
+#define MAX_RETRIES 1000
+#define RETRY_INTERVAL_MS 10
 
 template <class T>
 CAAS_TYPE caas_get_data_type() {
@@ -196,8 +196,6 @@ public:
     sockaddr_in proxy_server;
     int proxy_server_socket;
     elasticache_sdk *e_sdk;
-    s3_sdk *s_sdk;
-    std::string bucket_name;
     uint32_t partition_id_identity;
 
     proxy() {}
@@ -212,8 +210,7 @@ public:
             base_vertex_value, config
     ) {
         e_sdk = new elasticache_sdk(config -> elasticache_host, 6379);
-        bucket_name = config -> s3_bucket;
-        s_sdk = new s3_sdk();
+        e_sdk -> connect();
         partition_id_identity = config -> partition_id;
     }
 
@@ -233,7 +230,6 @@ public:
 
         if (this -> config -> elastic_proxy) {
             VLOG(1) << "before get proxy ip from elasticache";
-            e_sdk -> connect();
             proxy_server_host = e_sdk -> get(std::to_string(this -> request_id));
             if (proxy_server_host == "") {
                 std::cout << "request " << this -> request_id << ": get proxy server address list from GlobalIPList" << std::endl;
@@ -283,19 +279,17 @@ public:
             }
         }
         uint32_t msg_size = 0;
-       //  VLOG(1) << "this -> request_id = " << this -> request_id;
-        std::string s3_prefix = std::to_string(this -> request_id) + "_" + std::to_string(this -> object_id) + "_" + std::to_string(round);
-        // VLOG(1) << "s3_prefix = " << s3_prefix;
+        std::string e_cache_prefix = std::to_string(this -> request_id) + "_" + std::to_string(this -> object_id) + "_" + std::to_string(round);
 
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
-                    std::string s3_op_name = s3_prefix + "_broadcast";
-                    this -> s_sdk -> put_object(bucket_name, s3_op_name, segment.first, segment.second);
+                    std::string e_cache_key_name = e_cache_prefix + "_broadcast";
+                    this -> e_sdk -> setBinaryData(e_cache_key_name, segment.first, segment.second);
+                    // VLOG(1) << "successful broadcast bytes = " << segment.second << "B";
                     msg_size = segment.second;
-                    // caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
                     }
@@ -304,30 +298,26 @@ public:
                 case CAAS_OP::MASKED_REDUCE: {
                     int collected = 0;
                     const int expected = this -> instances - 1;
-                    std::string s3_op_prefix = s3_prefix + "_reduce_"; 
+                    std::string e_cache_key_prefix = e_cache_prefix + "_reduce_"; 
                     std::unordered_set<std::string> processed_objects;
 
                     while (collected < expected) {
-                        std::vector<std::string> all_objects = this -> s_sdk -> list_objects(bucket_name);
-                        for (auto object_name : all_objects) {
-                            if (object_name.find(s3_op_prefix) != std::string::npos &&
-                                processed_objects.find(object_name) == processed_objects.end()) {
-                                                                std::pair<char *, size_t> temp_segment = this -> s_sdk -> get_object(bucket_name, object_name);
+                        std::vector<std::string> all_keys = this -> e_sdk -> listAllKeys();
+                        for (auto key_name : all_keys) {
+                            if (key_name.find(e_cache_key_prefix) != std::string::npos &&
+                                processed_objects.find(key_name) == processed_objects.end()) {
+                                std::pair<char *, size_t> temp_segment = this -> e_sdk -> getBinaryData(key_name);
                                 if (temp_segment.first != nullptr) {
                                     caas_reduce_adaptive_segment<T>(this, temp_segment.first, temp_segment.second);
                                     collected++;
                                     msg_size = temp_segment.second;
-                                    processed_objects.insert(object_name);
+                                    processed_objects.insert(key_name);
                                 }
                                 delete [] temp_segment.first;
                             }
                         }
                         std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_INTERVAL_MS));
                     }
-                    // std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
-                    // msg_size = segment.second;
-                    // caas_reduce_adaptive_segment<T>(this, segment.first, segment.second);
-                    // delete [] segment.first;
                     break;
                 }
                 default:
@@ -337,23 +327,25 @@ public:
         } else {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
-                    std::string s3_op_name = s3_prefix + "_broadcast";
+                    std::string e_cache_key_name = e_cache_prefix + "_broadcast";
                     int retry_count = 0;
                     std::pair<char *, uint32_t> segment{nullptr, 0};
                     while (retry_count < MAX_RETRIES) {
-                        segment = this -> s_sdk -> get_object(bucket_name, s3_op_name);
+                        segment = this -> e_sdk -> getBinaryData(e_cache_key_name);
                         if (segment.first != nullptr){
                             break;
                         }
                         retry_count++;
                         if (retry_count < MAX_RETRIES) {
+                            if (retry_count % 100 == 0) {
+                                VLOG(1) << "retry_count == " << retry_count << "; wait for " << e_cache_key_name; 
+                            }
                             std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_INTERVAL_MS));
                         }
                     }
                     if (segment.first == nullptr) {
-                        LOG(FATAL) << "Failed to get object for " << s3_op_name; 
+                        LOG(FATAL) << "Failed to get object for " << e_cache_key_name; 
                     }
-                    // std::pair<char *, size_t> segment = caas_recv_all(proxy_server_socket);
                     msg_size = segment.second;
                     caas_put_adaptive_segment<T>(this, segment.first, segment.second);
                     delete [] segment.first;
@@ -363,9 +355,8 @@ public:
                     COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     msg_size = segment.second;
-                    std::string s3_op_name = s3_prefix + "_reduce_" + std::to_string(this -> partition_id_identity);
-                    this -> s_sdk -> put_object(bucket_name, s3_op_name, segment.first, segment.second);
-                    // caas_send_all(proxy_server_socket, segment.first, segment.second);
+                    std::string e_cache_key_name = e_cache_prefix + "_reduce_" + std::to_string(this -> partition_id_identity);
+                    this -> e_sdk -> setBinaryData(e_cache_key_name, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
                         delete [] segment.first;
                     }

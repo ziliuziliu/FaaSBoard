@@ -37,8 +37,12 @@ public:
         stateful = false;
         total_msg_size.store(0);
         VLOG(1) << "aws sdk init";
-        sdk_init();
-        s_sdk = new s3_sdk();
+        if (config -> enable_sdk()) {
+            sdk_init();
+        }
+        if (config -> enable_s3_sdk()) {
+            s_sdk = new s3_sdk();
+        }
         std::ifstream meta_file(config -> graph_dir + "/graphs.meta");
         if (!meta_file.is_open()) {
             LOG(FATAL) << "could not open the file " << config -> graph_dir + "/graphs.meta " << strerror(errno);
@@ -156,12 +160,6 @@ public:
 
     void disconnect() {
         VLOG(1) << "disconnect with proxy";
-        // for (auto it = in_segments.begin(); it != in_segments.end(); it++) {
-        //     it -> second -> caas_disconnect();
-        // }
-        // for (auto it = out_segments.begin(); it != out_segments.end(); it++) {
-        //     it -> second -> caas_disconnect();
-        // }
         vote_object -> caas_disconnect();
     }
 
