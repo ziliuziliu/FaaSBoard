@@ -209,6 +209,7 @@ public:
             root, instances, members, data_type, comm_op, reduce_op,
             base_vertex_value, config
     ) {
+        VLOG(1) << "proxy:: elasticache_host = " << config -> elasticache_host;
         e_sdk = new elasticache_sdk(config -> elasticache_host, 6379);
         e_sdk -> connect();
         partition_id_identity = config -> partition_id;

@@ -306,7 +306,7 @@ class elasticache_sdk {
     
             // Set up SSL/TLS
             redisSSLContext* sslContext = redisCreateSSLContext(
-                "../script/cacert.pem",  // cert file
+                "cacert.pem",  // cert file
                 nullptr,  // key file
                 nullptr,  // ca cert
                 nullptr,  // ca path
