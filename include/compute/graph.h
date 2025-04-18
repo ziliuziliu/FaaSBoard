@@ -158,10 +158,6 @@ public:
             thread_states.push_back(new thread_state(curr, end));
         }
         auto exec_func = [&](int index){
-            VLOG(1) << "thread " << index << " [curr: " 
-                << thread_states[index] -> curr 
-                << ", end: " << thread_states[index] -> end 
-                << "], total edges: " << in_offset[end_v - start_v];
             while (true) {
                 uint32_t begin = thread_states[index] -> curr.fetch_add(64);
                 if (begin >= thread_states[index] -> end) {

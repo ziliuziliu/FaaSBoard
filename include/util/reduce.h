@@ -13,7 +13,7 @@
 #include <bitset>
 #include <mutex>
 
-std::mutex reduce_adaptive_segment_m;
+// std::mutex reduce_adaptive_segment_m;
 
 using reduce_uint32_f_single = std::function<uint32_t(uint32_t, uint32_t)>;
 using reduce_int_f_single = std::function<int(int, int)>;

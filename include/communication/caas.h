@@ -9,6 +9,7 @@
 #include "util/flags.h"
 #include "util/sdk.h"
 
+#include <sys/ioctl.h>
 #include <vector>
 #include <arpa/inet.h>
 #include <string>
@@ -71,12 +72,12 @@ void caas_segment_set_segment_type(uint32_t *flag, COMM_TYPE segment_type) {
     *flag |= ((uint32_t)segment_type << 29);
 }
 
-COMM_TYPE caas_adaptive_segment(uint32_t segment_size) {
+COMM_TYPE caas_adaptive_segment(uint32_t segment_size, exec_config *config) {
     if (segment_size == 0) {
         return COMM_TYPE::CAAS_MAGIC;
-    } else if (segment_size <= CAAS_SPARSE_PAIR_LIMIT) {
+    } else if (segment_size <= config -> pair_sparse_boundary) {
         return COMM_TYPE::CAAS_PAIR;
-    } else if (segment_size <= CAAS_SPARSE_LIMIT) {
+    } else if (segment_size <= config -> sparse_dense_boundary) {
         return COMM_TYPE::CAAS_SPARSE;
     } else {
         return COMM_TYPE::CAAS_DENSE;
@@ -92,11 +93,31 @@ void caas_send_all(int fd, char *data, size_t len) {
     }
 }
 
+size_t get_available_bytes(int fd) {
+    int available_bytes = 0;
+    if (ioctl(fd, FIONREAD, &available_bytes) < 0) {
+        perror("ioctl failed");
+        return 0;
+    }
+    return static_cast<size_t>(available_bytes);
+}
+
 std::pair<char *, size_t> caas_recv_all(int fd) {
     size_t len, pos = 0;
     ssize_t signal = recv(fd, &len, sizeof(size_t), 0);
-    if (signal == 0) {
-        return {nullptr, 0};
+    if (signal <= 0) {
+        if (signal == 0) {
+            // Connection closed
+            return {nullptr, 1};
+        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
+            // Timeout occurred
+            VLOG(1) << "fd " << fd << " recv timeout on signal " << strerror(errno);
+            return {nullptr, 0};
+        } else {
+            // Other errors
+            VLOG(1) << "fd " << fd << " error " << strerror(errno);
+            return {nullptr, 0};
+        }
     }
     char *data = new char[len];
     while (pos < len) {
@@ -276,7 +297,8 @@ public:
         if (this -> root) {
             switch (this -> comm_op) {
                 case CAAS_OP::MASKED_BROADCAST: {
-                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size(), this -> config);
+                    VLOG(1) << "root broadcast " << log_comm_type(segment_type) << " size " << this -> bm -> get_size();
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
                     msg_size = segment.second;
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
@@ -306,8 +328,9 @@ public:
                     break;
                 }
                 case CAAS_OP::MASKED_REDUCE: {
-                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size());
+                    COMM_TYPE segment_type = caas_adaptive_segment(this -> bm -> get_size(), this -> config);
                     std::pair<char *, size_t> segment = caas_make_adaptive_segment<T>(this, segment_type);
+                    VLOG(1) << "leaf reduce " << log_comm_type(segment_type);
                     msg_size = segment.second;
                     caas_send_all(proxy_server_socket, segment.first, segment.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
@@ -425,6 +448,7 @@ template <class T>
 void caas_put_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data; 
     COMM_TYPE segment_type = caas_segment_get_segment_type(segment[4]);
+    VLOG(1) << "leaf broadcast " << log_comm_type(segment_type);
     
     switch (segment_type) {
         case COMM_TYPE::CAAS_MAGIC: {
@@ -477,6 +501,7 @@ template <class T>
 void caas_reduce_adaptive_segment(comm_object<T> *object, char *data, size_t len) {
     uint32_t *segment = (uint32_t *)data;
     COMM_TYPE segment_type = caas_segment_get_segment_type(segment[4]);
+    VLOG(1) << "root reduce " << log_comm_type(segment_type);
     CAAS_REDUCE_OP reduce_op = caas_flag_get_reduce_op(segment[4]);
 
     switch (segment_type) {

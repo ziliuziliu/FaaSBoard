@@ -174,24 +174,24 @@ public:
             }
 
             case COMM_TYPE::CAAS_PAIR: {
-                VLOG(1) << "reduce sparse pair";
+                // VLOG(1) << "reduce sparse pair";
                 reduce_vec_masked_sparse_pair(data + 5 + bitmap_len, segment + 5, vec_len, (len >> 2) - 5, bm, reduce_op, data_type);
                 break;
             }
 
             case COMM_TYPE::CAAS_SPARSE: {
-                VLOG(1) << "reduce sparse";
+                // VLOG(1) << "reduce sparse";
                 bitmap *segment_bm = new bitmap(vec_len, segment + 5);
                 reduce_vec_masked_sparse(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, segment_bm, reduce_op, data_type);
                 break;
             }
 
             case COMM_TYPE::CAAS_DENSE: {
-                VLOG(1) << "reduce dense";
-                {
-                    std::lock_guard<std::mutex> reduce_lg(reduce_adaptive_segment_m);
+                // VLOG(1) << "reduce dense";
+                // {
+                //     std::lock_guard<std::mutex> reduce_lg(reduce_adaptive_segment_m);
                     reduce_vec_masked_dense(data + 5 + bitmap_len, segment + 5 + bitmap_len, vec_len, bm, reduce_op, data_type);
-                }
+                // }
                 break;
             }
 
@@ -229,6 +229,13 @@ std::unordered_map<uint32_t, REQUEST_EXECUTION_STATUS> request_status_table;
 std::mutex request_status_table_m;
 exec_config *config;
 lambda_sdk *l_sdk;
+
+std::unordered_set<int> allreduce_fd_set;
+std::mutex allreduce_fd_set_m;
+
+std::unordered_map<int, int> fd_thread_table;
+std::unordered_map<int, int> request_thread_id_table;
+int known_request = 0;
 
 struct alarm_event {
 
@@ -297,52 +304,66 @@ void work(int thread_id, int epoll_fd) {
     while (true) {
         int client_fd;
         fd_queue[thread_id] -> wait_dequeue(client_fd);
+        if (allreduce_fd_set.contains(client_fd)) {
+            VLOG(1) << "dequeue allreduce fd " << client_fd << " to thread " << thread_id;
+        }
         cas<int>(&thread_stuck[thread_id], 0, 1);
         std::pair<char *, size_t> raw_data = caas_recv_all(client_fd);
         cas<int>(&thread_stuck[thread_id], 1, 0);
-        if (raw_data.second == 1) {
-            VLOG(1) << "error msg " << (int)raw_data.first[0];
-        }
+        // if (raw_data.second == 1) {
+        //     VLOG(1) << "error msg " << (int)raw_data.first[0];
+        // }
         segment_base *segment;
         {
             std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
             segment = fd_segment[client_fd];
         }
+        // if (segment -> object_id == 0) {
+        //     VLOG(1) << "having received allreduce fd " << client_fd << " in thread " << thread_id;
+        // }
         if (raw_data.first == nullptr) {
-            VLOG(1) << "fd " << client_fd << " closed";
-            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
-            close(client_fd);
-            {
-                std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
-                fd_segment.erase(client_fd);
-            }
-            int now_reinvoke_cnt = -1;
-            {
-                std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
-                request_reinvoke_cnt[segment -> request_id]--;
-                now_reinvoke_cnt = request_reinvoke_cnt[segment -> request_id];
-            }
-            if (now_reinvoke_cnt == 0) {
-                request_reinvoke_cv.notify_all();
-            }
-            segment -> m.lock();
-            remove_fd_from_segment(client_fd, segment);
-            segment -> m.unlock();
-            if (segment -> none_connected()) {
+            if (raw_data.second != 0) {
+                VLOG(1) << "fd " << client_fd << " closed";
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+                close(client_fd);
                 {
-                    std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
-                    request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::INIT;
+                    std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
+                    fd_segment.erase(client_fd);
                 }
+                if (segment -> object_id == 0) {
+                    std::lock_guard<std::mutex> allreduce_fd_set_lg(allreduce_fd_set_m);
+                    allreduce_fd_set.erase(client_fd);
+                }
+                int now_reinvoke_cnt = -1;
                 {
                     std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
-                    request_reinvoke_cnt.erase(segment -> request_id);
+                    request_reinvoke_cnt[segment -> request_id]--;
+                    now_reinvoke_cnt = request_reinvoke_cnt[segment -> request_id];
                 }
-                {
-                    std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
-                    segment_table.erase(combine(segment -> request_id, segment -> object_id));
+                if (now_reinvoke_cnt == 0) {
+                    request_reinvoke_cv.notify_all();
                 }
-                VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
-                delete segment;
+                segment -> m.lock();
+                remove_fd_from_segment(client_fd, segment);
+                if (segment -> none_connected()) {
+                    segment -> m.unlock();
+                    {
+                        std::lock_guard<std::mutex> request_status_table_lg(request_status_table_m);
+                        request_status_table[segment -> request_id] = REQUEST_EXECUTION_STATUS::INIT;
+                    }
+                    {
+                        std::lock_guard<std::mutex> request_reinvoke_lg(request_reinvoke_m);
+                        request_reinvoke_cnt.erase(segment -> request_id);
+                    }
+                    {
+                        std::lock_guard<std::mutex> segment_table_lg(segment_table_m);
+                        segment_table.erase(combine(segment -> request_id, segment -> object_id));
+                    }
+                    VLOG(1) << "request " << segment -> request_id << " object " << segment -> object_id << " deleted";
+                    delete segment;
+                } else {
+                    segment -> m.unlock();
+                }
             }
             cas<int>(&fd_in_queue[client_fd], 1, 0);
             continue;
@@ -352,9 +373,9 @@ void work(int thread_id, int epoll_fd) {
         std::vector<int> fd_list;
         switch (caas_flag_get_comm_op(flag)) {
             case CAAS_OP::MASKED_BROADCAST:
-                VLOG(1) << "masked broadcast from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
+                // VLOG(1) << "masked broadcast from request " << request_id 
+                //     << " object " << object_id
+                //     << " fd " << client_fd;
                 fd_list = std::vector<int>(segment -> fds.begin(), segment -> fds.end());
                 #pragma omp parallel for
                 for (int i = 0; i < (int)fd_list.size(); i++) {
@@ -363,9 +384,9 @@ void work(int thread_id, int epoll_fd) {
                 delete [] raw_data.first;
                 break;
             case CAAS_OP::MASKED_REDUCE:
-                VLOG(1) << "masked reduce from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
+                // VLOG(1) << "masked reduce from request " << request_id 
+                //     << " object " << object_id
+                //     << " fd " << client_fd;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);
@@ -373,7 +394,7 @@ void work(int thread_id, int epoll_fd) {
                 segment -> reduce_adaptive_segment(raw_data.first, raw_data.second);
                 segment -> reduce_cnt++;
                 if (segment -> reduce_cnt == (int)segment -> instances - 1) {
-                    COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size());
+                    COMM_TYPE segment_type = caas_adaptive_segment(segment -> bm -> get_size(), config);
                     std::pair<char *, size_t> new_data = segment -> make_adaptive_segment(segment_type);
                     caas_send_all(segment -> root_fd, new_data.first, new_data.second);
                     if (segment_type != COMM_TYPE::CAAS_DENSE) {
@@ -582,8 +603,10 @@ void run() {
         spinner.detach();
     }
     VLOG(1) << "proxy server started";
+    uint64_t iter = 0;
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        iter += 1;
         int num_events = epoll_wait(epoll_fd, events, MAX_CONNECTION, -1);
         for (int i = 0; i < num_events; i++) {
             if (events[i].data.fd == server_fd) {
@@ -634,6 +657,24 @@ void run() {
                     std::lock_guard<std::mutex> fd_segment_lg(fd_segment_m);
                     fd_segment[client_fd] = segment;
                 }
+                if (object_id == 0) {
+                    std::lock_guard<std::mutex> allreduce_fd_set_lg(allreduce_fd_set_m);
+                    allreduce_fd_set.insert(client_fd);
+                }
+                if (object_id == 0) {
+                    struct timeval timeout;
+                    timeout.tv_sec = 1;   // Timeout in seconds
+                    timeout.tv_usec = 0; // Timeout in microseconds
+                    if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+                        LOG(FATAL) << "setsockopt failed";
+                    }
+                }
+                if (request_thread_id_table.count(request_id) == 0) {
+                    request_thread_id_table[request_id] = known_request;
+                    known_request++;
+                }
+                fd_thread_table[client_fd] = request_thread_id_table[request_id];
+                request_thread_id_table[request_id] = (request_thread_id_table[request_id] + 1) % config -> cores;
             } else if (events[i].events & (EPOLLRDHUP | EPOLLHUP)) {
                 LOG(FATAL) << "fd " << events[i].data.fd << " epollhup";
             } else if (events[i].events & EPOLLERR) {
@@ -663,7 +704,9 @@ void run() {
                         }
                     }
                 }
-                // VLOG(1) << "enqueue fd " << client_fd << " to thread " << mn_thread_id;
+                if (allreduce_fd_set.contains(client_fd)) {
+                    VLOG(1) << "iter " << iter << " enqueue allreduce fd " << client_fd << " to thread " << mn_thread_id << " events " << events[i].events;
+                }
                 fd_queue[mn_thread_id] -> wait_enqueue(client_fd);
             }
         }

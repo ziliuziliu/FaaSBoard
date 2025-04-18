@@ -42,6 +42,8 @@ DEFINE_int32(kill_wait_ms, 100000, "wait time to kill process");
 DEFINE_bool(elastic_proxy, false, "enable elastic proxy");
 DEFINE_string(elasticache_host, "", "elasticache host");
 DEFINE_string(proxy_ip, "", "proxy server ip");
+DEFINE_uint32(pair_sparse_boundary, 100000, "pair sparse boundary");
+DEFINE_uint32(sparse_dense_boundary, 1000000, "sparse dense boundary");
 
 std::vector<std::string> parse_proxy_server_list() {
     std::stringstream ss(FLAGS_proxy_server_list);
@@ -67,6 +69,7 @@ struct exec_config {
     std::string elasticache_host, proxy_ip;
     bool elastic_proxy;
     int kill_wait_ms;
+    uint32_t pair_sparse_boundary, sparse_dense_boundary;
     RUN_TYPE run_type;
 
     exec_config() {}
@@ -109,6 +112,8 @@ struct exec_config {
         config -> pr_iterations = FLAGS_pr_iterations;
         config -> bfs_root = FLAGS_bfs_root;
         config -> sssp_root = FLAGS_sssp_root;
+        config -> pair_sparse_boundary = FLAGS_pair_sparse_boundary;
+        config -> sparse_dense_boundary = FLAGS_sparse_dense_boundary;
         return config;
     }
 
@@ -133,6 +138,10 @@ struct exec_config {
         } else if (config -> get_app() == "sssp"){
             config -> sssp_root = request["sssp_root"];
         }
+        uint32_t pair_sparse_boundary = request.value("pair_sparse_boundary", 100000);
+        uint32_t sparse_dense_boundary = request.value("sparse_dense_boundary", 1000000);
+        config -> pair_sparse_boundary = pair_sparse_boundary;
+        config -> sparse_dense_boundary = sparse_dense_boundary;
         return config;
     }
 

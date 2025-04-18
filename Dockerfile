@@ -51,14 +51,24 @@ RUN wget -O /tmp/hiredis-1.2.0.tar.gz https://github.com/redis/hiredis/archive/r
     make USE_SSL=1 && make install && make install-ssl && \
     rm -rf /tmp/hiredis-1.2.0.tar.gz /tmp/hiredis-1.2.0
 
-# 8. Create the working directory
+# 8. Install AWS Lambda C++ Runtime
+RUN git clone https://github.com/awslabs/aws-lambda-cpp.git /tmp/aws-lambda-cpp && \
+    cd /tmp/aws-lambda-cpp && \
+    mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambda-install && \
+    make && make install
+
+# 9. Create the working directory
 WORKDIR /app
 
-# 9. Copy the compiled proxy_server executable
-COPY ./build/proxy_server /app/proxy_server
-
-# 10. Make sure the executable is runnable
-RUN chmod +x /app/proxy_server
+# 10. Compile the proxy_server
+COPY ./include /app/include
+COPY ./test /app/test
+COPY CMakeLists.txt /app/CMakeLists.txt
+RUN mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=~/lambda-install && \
+    make && \
+    chmod +x /app/build/proxy_server
 
 # 11. Set the command to run the proxy_server
-CMD ["./proxy_server", "--elastic-proxy", "--elasticache-host", "faasboard-hcdnu5.serverless.apse1.cache.amazonaws.com", "-cores", "16", "--v", "1"]
+CMD ["./build/proxy_server", "-cores", "16", "--v", "1"]

@@ -26,11 +26,11 @@ def get_info(graph, application, index):
     return durations, msg_size_list, overall_time_list, idle_time_list
 
 if __name__ == '__main__':
-    start_time = datetime.datetime(2025, 3, 26, 16, 43, tzinfo=datetime.timezone.utc).timestamp()
+    start_time = datetime.datetime(2025, 3, 28, 13, 26, tzinfo=datetime.timezone.utc).timestamp()
     client = boto3.client('logs')
     
     graph_name = 'twitter'
-    application = 'pr-accurate'
+    application = 'bfs-trimode'
 
     if graph_name == 'livejournal':
         if application == 'bfs' or application == 'pr':
@@ -38,7 +38,7 @@ if __name__ == '__main__':
         elif application == 'sssp' or application == 'cc':
             cmd_num = 1
     elif graph_name == 'twitter':
-        if application == 'bfs' or application == 'pr' or application.startswith('pr'):
+        if application == 'bfs' or application == 'pr' or application.startswith('bfs') or application.startswith('pr'):
             cmd_num = 6
         elif application == 'sssp' or application == 'cc':
             cmd_num = 12
