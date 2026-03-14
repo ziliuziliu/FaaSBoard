@@ -171,10 +171,10 @@ Special thanks to [SNAP](https://snap.stanford.edu/) for providing the datasets 
 
 ## Third-party Modules
 
-- `https://github.com/cameron314/concurrentqueue/tree/master`: vendored under `include/util/mpmc/`, used as a blocking multi-producer/multi-consumer queue to pipeline computation and communication. 
-- `https://github.com/cameron314/readerwriterqueue/tree/master`: vendored under `include/util/spsc/`, used as a blocking single-producer/single-consumer ring buffer in the proxy server. The epoll loop enqueues ready client file descriptors into per-core queues, and worker threads dequeue them to handle network I/O and segment reduction.
-- `https://github.com/KarypisLab/METIS`: used to implement our metis-based partition strategy for benchmarking during preprocessing (METIS partitioning and vertex reordering by parts).
-- `https://github.com/datourat/Gorder`: used to generate graphs with optimized vertex orderings to study FaaSBoard's robustness under different graph orderings.
+- [concurrentqueue](https://github.com/cameron314/concurrentqueue/tree/master): vendored under `include/util/mpmc/`, used as a blocking multi-producer/multi-consumer queue to pipeline computation and communication. 
+- [readerwriterqueue](https://github.com/cameron314/readerwriterqueue/tree/master): vendored under `include/util/spsc/`, used as a blocking single-producer/single-consumer ring buffer in the proxy server. The epoll loop enqueues ready client file descriptors into per-core queues, and worker threads dequeue them to handle network I/O and segment reduction.
+- [METIS](https://github.com/KarypisLab/METIS): used to implement our metis-based partition strategy for benchmarking during preprocessing (METIS partitioning and vertex reordering by parts).
+- [Gorder](`https://github.com/datourat/Gorder`): used to generate graphs with optimized vertex orderings to study FaaSBoard's robustness under different graph orderings.
 
 We thank the authors and maintainers of these open-source projects for making this work possible.
 
