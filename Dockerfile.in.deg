@@ -1,4 +1,4 @@
-FROM provided.al2023:local
+FROM public.ecr.aws/lambda/provided:al2023
 ARG FUNCTION_PATH
 ARG GRAPH_DIR
 ENV FUNCTION_PATH=${FUNCTION_PATH}

@@ -9,52 +9,58 @@
 #include <filesystem>
 #include <chrono>
 
-void parse_line(char *line, int line_size, uint32_t *x, uint32_t *y) {
-    *x = *y = 0;
-    bool first_num = true;
-    for (int i = 0; i < line_size; i++) {
-        if (line[i] >= '0' && line[i] <= '9') {
-            if (first_num) *x = *x * 10 + line[i] - '0';
-            else *y = *y * 10 + line[i] - '0';
-        } else {
-            if (first_num) first_num = false;
-            else break;
+static inline int parse_line(const char* line, size_t line_size,
+                             uint32_t* x, uint32_t* y, uint32_t* w) {
+    size_t idx = 0;
+
+    auto skip_ws = [&]() {
+        while (idx < line_size &&
+               (line[idx] == ' ' || line[idx] == '\t' || line[idx] == '\r' || line[idx] == '\n'))
+            idx++;
+    };
+
+    auto read_u32_opt = [&](uint32_t* out) -> bool {
+        skip_ws();
+        if (idx >= line_size) return false;
+        if (line[idx] < '0' || line[idx] > '9') return false;
+
+        uint32_t val = 0;
+        while (idx < line_size && line[idx] >= '0' && line[idx] <= '9') {
+            val = val * 10u + (uint32_t)(line[idx] - '0');
+            idx++;
         }
-    }
+        *out = val;
+        return true;
+    };
+
+    int cols = 0;
+    if (read_u32_opt(x)) cols++; else return cols;
+    if (read_u32_opt(y)) cols++; else return cols;
+
+    if (read_u32_opt(w)) cols++;
+    return cols;
 }
 
-void vertex_hash(uint32_t *mapping, uint32_t mx, uint32_t *edge_buffer, uint64_t edge_count) {
+
+void vertex_hash(uint32_t *mapping, uint32_t mx,
+                 uint32_t *edge_buffer, uint64_t edge_count,
+                 uint32_t step) {
     for (uint32_t i = 1; i <= mx; i++)
         mapping[i] += mapping[i - 1];
     for (uint32_t i = 0; i <= mx; i++)
         mapping[i]--;
+
     #pragma omp parallel for
-    for (uint64_t i = 0; i < edge_count; i++)
-        edge_buffer[i] = mapping[edge_buffer[i]];
+    for (uint64_t i = 0; i < edge_count; i += step) {
+        edge_buffer[i] = mapping[edge_buffer[i]];       // u
+        edge_buffer[i + 1] = mapping[edge_buffer[i + 1]];   // v
+    }
 }
 
-// double get_available_memory_gb() {
-//     std::ifstream meminfo("/proc/meminfo");
-//     std::string line;
-//     double mem_available = 0.0;
 
-//     while (std::getline(meminfo, line)) {
-//         if (line.find("MemAvailable:") != std::string::npos) {
-//             std::istringstream iss(line);
-//             std::string key;
-//             iss >> key >> mem_available;  // 提取可用内存值
-//             mem_available /= 1024.0 * 1024.0;  // 转换为 GB
-//             break;
-//         }
-//     }
-
-//     return mem_available;
-// }
-
-// w = (u + v) % 100
 template <class T>
 void read_txt_util(
-    std::string path, bool undirected,
+    std::string path, bool undirected, bool txt_with_weight,
     uint64_t *in_offset, uint32_t *in_source, T *in_weight, uint32_t *in_degree, 
     uint64_t *out_offset, uint32_t *out_dest, T *out_weight, uint32_t *out_degree, 
     bool weighted, uint32_t total_v, uint64_t total_e
@@ -64,33 +70,42 @@ void read_txt_util(
     char *line = new char[100]; 
     size_t line_size = 0;
     uint64_t edge_buffer_count = 0;
-    uint32_t mx = 0, x, y;
+    uint32_t mx = 0, x, y, w = 0;
     uint32_t *mapping = new uint32_t[total_v * 3];
-    uint32_t *edge_buffer = new uint32_t[total_e * 2];
+    uint32_t *edge_buffer = new uint32_t[total_e * 3];
     while (getline(&line, &line_size, txt_file) > 0) {
         if (line[0] == '#') continue;
-        parse_line(line, line_size, &x, &y);
+        int cols = parse_line(line, line_size, &x, &y, &w);
+        if (cols < 2) continue; 
         edge_buffer[edge_buffer_count++] = x;
         edge_buffer[edge_buffer_count++] = y;
+        if (weighted && txt_with_weight) {
+            edge_buffer[edge_buffer_count++] = w;
+        } 
         if (undirected) {
             edge_buffer[edge_buffer_count++] = y;
             edge_buffer[edge_buffer_count++] = x;
         }
-        if (edge_buffer_count <= 20) {
-            VLOG(1) << x << " " << y;
+        if (edge_buffer_count <= 30) {
+            VLOG(1) << "cols = " << cols;
+            if (weighted && txt_with_weight) VLOG(1) << x << " " << y << " " << w;
+            else VLOG(1) << x << " " << y;
         }
-        if (edge_buffer_count % 10000000 == 0) {
+        if (edge_buffer_count % 15000000 == 0) {
             VLOG(1) << "current size " << edge_buffer_count;
         }
         mapping[x] = mapping[y] = 1;
         mx = std::max(mx, std::max(x, y));
     }
     fclose(txt_file);
-    VLOG(1) << "have read everything, size " << edge_buffer_count / 2;
+
+    uint64_t step = (weighted && txt_with_weight) ? 3 : 2;
+    VLOG(1) << "have read everything, size " << edge_buffer_count / step;
     VLOG(1) << "start hashing";
-    vertex_hash(mapping, mx, edge_buffer, edge_buffer_count);
+    vertex_hash(mapping, mx, edge_buffer, edge_buffer_count, (uint32_t)step);
     VLOG(1) << "start building csr";
-    for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
+
+    for (uint64_t i = 0; i < edge_buffer_count; i += step) {
         uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
         in_offset[v + 1]++;
         out_offset[u + 1]++;
@@ -99,13 +114,22 @@ void read_txt_util(
         in_offset[i] += in_offset[i - 1];
         out_offset[i] += out_offset[i - 1];
     }
-    for (uint64_t i = 0; i < edge_buffer_count; i += 2) {
+    for (uint64_t i = 0; i < edge_buffer_count; i += step) {
         uint32_t u = edge_buffer[i], v = edge_buffer[i + 1];
+        uint32_t ww;
+        if (weighted && txt_with_weight) {
+            ww = edge_buffer[i + 2];
+        }
         in_source[in_offset[v]] = u;
         out_dest[out_offset[u]] = v;
         if (weighted) {
-            in_weight[in_offset[v]] = (T)(uint64_t)((u + v) % 100);
-            out_weight[out_offset[u]] = (T)(uint64_t)((u + v) % 100);
+            if (txt_with_weight) {
+                in_weight[in_offset[v]] = (T)(uint64_t)ww;
+                out_weight[out_offset[u]] = (T)(uint64_t)ww;
+            } else {
+                in_weight[in_offset[v]] = (T)(uint64_t)((u + v) % 100);
+                out_weight[out_offset[u]] = (T)(uint64_t)((u + v) % 100);
+            }
         }
         in_offset[v]++;
         out_offset[u]++;

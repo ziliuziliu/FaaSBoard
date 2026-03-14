@@ -27,7 +27,10 @@ public:
             {"mondriaan_column_row", [this]() { handle_mondriaan_column_row(); }},
             {"checkerboard", [this]() { handle_checkerboard(); }},
             {"cycle", [this]() { handle_cycle(); }},
-            {"stagger", [this]() { handle_stagger(); }}
+            {"stagger", [this]() { handle_stagger(); }},
+            {"hash", [this]() { handle_hash(); }},
+            {"metis", [this]() { handle_metis(); }},
+            {"naive", [this]() { handle_naive(); }} // naive -> grid_partition
         };
 
         auto it = strategy_map.find(strategy);
@@ -59,7 +62,7 @@ private:
         return std::vector<uint32_t>(cutset.begin(), cutset.end());
     }
 
-    // targeted at 4 partition strategies (row,column,mondriaan_row_column,mondiraan_column_row)
+    // targeted at 7 partition strategies (row, column, mondriaan_row_column, mondiraan_column_row, hash, metis, naive / grid)
     void handle_axis_aligned_partition(std::function<partition_result()> partition_func) {
         result = partition_func();
         result.print();
@@ -67,9 +70,10 @@ private:
         std::vector<uint32_t> cuts = convert_cutset_to_vector(cutset);
         int cut = cuts.size() - 1;
         partition_result processed_result = graph.generate_checkerboard_partition_from_cuts(cut, cuts);
+        processed_result.print();
         graphsets = graph.partition(processed_result, false);
         std::vector<graph_set<ewT>*> new_graphsets = graph_set<ewT>::pack_graph(graphsets, result);
-        handle_save(true, new_graphsets);
+        handle_save(false, new_graphsets);
     }
 
     // Actually, when this function is called, each graphset contains only one graph at this point.
@@ -108,6 +112,24 @@ private:
 
     void handle_mondriaan_column_row() {
         handle_axis_aligned_partition([this]() { return graph.mondriaan_partition_column_row(total_block); });
+    }
+
+    void handle_hash() {
+        handle_axis_aligned_partition([this]() { return graph.hash_partition(total_block); });
+    }
+
+    void handle_metis() {
+        handle_axis_aligned_partition([this]() { return graph.metis_partition(total_block); });
+    }
+
+    void handle_naive() {
+        handle_axis_aligned_partition([this]() { 
+            if (sqrt(total_block) * sqrt(total_block) != total_block) {
+                LOG(FATAL) << "The naive 2D partition requires the total_block to be a perfect square.";
+            }
+            result = graph.naive_checkerboard_partition(sqrt(total_block));
+            return result;
+        });
     }
 
     void handle_checkerboard() {
@@ -161,14 +183,14 @@ private:
         result.print();
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
-        graphsets = graph.partition(result, true);
+        graphsets = graph.partition(result, false);
         Normalize_graphsets();
         for (auto graphset : graphsets) {
             graphset->print(false);
         }
         VLOG(1) << "cycle placing";
         graphsets = graph_set<ewT>::cycle(graphsets, total_block);
-        handle_save(true);
+        handle_save(false);
     }
 
     void handle_stagger() {
@@ -176,14 +198,14 @@ private:
         result.print();
         VLOG(1) << "unbalance ratio: " << result.get_unbalance_ratio();
         VLOG(1) << "begin partitioning";
-        graphsets = graph.partition(result, true);
+        graphsets = graph.partition(result, false);
         Normalize_graphsets();
         for (auto graphset : graphsets) {
             graphset->print(false);
         }
         VLOG(1) << "stagger placing";
         graphsets = graph_set<ewT>::stagger(graphsets, total_block);
-        handle_save(true);
+        handle_save(false);
     }
 };
 

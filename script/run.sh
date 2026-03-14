@@ -1,134 +1,123 @@
 #!/bin/bash
-# Default values
-BFS_ROOT=0
-META_SERVER_IP="127.0.0.1"
-REQUEST_ID=123
-CORES=2
-V_FLAG=1
-SPARSE_ONLY="--sparse-only"
-DENSE_ONLY="--dense-only"
-LOG_DIR="./logs"
-PR_ITERATIONS=20
-GRAPH="livejournal"
-APP="bfs"
-MODE="local"
+# Example: ./run.sh -mode local -app bfs -graph livejournal -bfs_root 0 -proxy_ip 127.0.0.1
+# Example: sudo ./run.sh -mode local -app pr -graph twitter -pr_iterations 20 -proxy_ip 127.0.0.1
+# Example: ./run.sh -mode aws -app pr -graph twitter -pr_iterations 20 
+set -euo pipefail
 
-# Parse command line arguments
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_DIR="$ROOT_DIR/build"
+LOG_DIR="$ROOT_DIR/script/logs"
+
+MODE=local
+APP=bfs
+GRAPH=livejournal
+PARTITIONS=0
+REQUEST_ID=101
+CORES=2
+V=1
+BFS_ROOT=0
+SSSP_ROOT=0
+PR_ITERATIONS=20
+PROXY_IP=127.0.0.1
+RESULT_DIR="$ROOT_DIR/data/result"
+FUNCTION_PREFIX=""
+S3_BUCKET="ziliuziliu"
+SAVE_MODE=0
+DYNAMIC_INVOKE=false
+ELASTIC_PROXY=true
+ELASTICACHE_HOST="faasboard-hcdnu5.serverless.apse1.cache.amazonaws.com" # you need to update this with your own Elasticache host if using elastic proxy
+KILL_WAIT_MS=300
+
+usage() {
+  echo "Usage: ./run.sh -mode <local|aws> -app <bfs|pr|sssp|cc> [-graph livejournal|twitter|friendster|rmat27] [options]"
+  exit 1
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -bfs_root)
-      BFS_ROOT="$2"
-      shift 2
-      ;;
-    -meta_server)
-      META_SERVER_IP="$2"
-      shift 2
-      ;;
-    -request_id)
-      REQUEST_ID="$2"
-      shift 2
-      ;;
-    -cores)
-      CORES="$2"
-      shift 2
-      ;;
-    -v)
-      V_FLAG="$2"
-      shift 2
-      ;;
-    -pr_iterations)
-      PR_ITERATIONS="$2"
-      shift 2
-      ;;
-    -mode)
-      MODE="$2"  # mode can be "local" or "aws"
-      shift 2
-      ;;
-    -app)
-      APP="$2"  # app can be "bfs" or "pr"
-      shift 2
-      ;;
-    -graph)
-      GRAPH="$2" # graph can be "livejournal" or "twitter-2010-balance"
-      shift 2
-      ;;
-    *)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
+    -mode) MODE="$2"; shift 2 ;;
+    -app) APP="$2"; shift 2 ;;
+    -graph) GRAPH="$2"; shift 2 ;;
+    -partitions) PARTITIONS="$2"; shift 2 ;;
+    -request_id) REQUEST_ID="$2"; shift 2 ;;
+    -cores) CORES="$2"; shift 2 ;;
+    -bfs_root) BFS_ROOT="$2"; shift 2 ;;
+    -sssp_root) SSSP_ROOT="$2"; shift 2 ;;
+    -pr_iterations) PR_ITERATIONS="$2"; shift 2 ;;
+    -proxy_ip) PROXY_IP="$2"; shift 2 ;;
+    -result_dir) RESULT_DIR="$2"; shift 2 ;;
+    -function_prefix) FUNCTION_PREFIX="$2"; shift 2 ;;
+    -s3_bucket) S3_BUCKET="$2"; shift 2 ;;
+    -save_mode|-save-mode) SAVE_MODE="$2"; shift 2 ;;
+    -dynamic_invoke) DYNAMIC_INVOKE="$2"; shift 2 ;;
+    -elastic_proxy) ELASTIC_PROXY="$2"; shift 2 ;;
+    -elasticache_host) ELASTICACHE_HOST="$2"; shift 2 ;;
+    -kill_wait_ms) KILL_WAIT_MS="$2"; shift 2 ;;
+    -v) V="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Unknown option: $1"; usage ;;
   esac
 done
 
-# Build the log directory
-mkdir -p "$LOG_DIR"
+case "$GRAPH:$APP" in
+  livejournal:*) DEFAULT_PARTITIONS=1 ;;
+  twitter:bfs|twitter:pr) DEFAULT_PARTITIONS=6 ;;
+  twitter:cc|twitter:sssp) DEFAULT_PARTITIONS=12 ;;
+  friendster:bfs|friendster:pr) DEFAULT_PARTITIONS=8 ;;
+  friendster:cc|friendster:sssp) DEFAULT_PARTITIONS=14 ;;
+  rmat27:bfs|rmat27:pr) DEFAULT_PARTITIONS=9 ;;
+  rmat27:cc|rmat27:sssp) DEFAULT_PARTITIONS=17 ;;
+  *) echo "Unsupported graph/app: $GRAPH / $APP"; exit 1 ;;
+ esac
+[[ "$PARTITIONS" -gt 0 ]] || PARTITIONS="$DEFAULT_PARTITIONS"
 
-# Bind CPU cores and set graph directories and output files
-CPU_BINDINGS=(0,1 2,3 4,5 6,7 8,9 10,11)
-GRAPH_DIRS=("../data/$GRAPH/0" "../data/$GRAPH/1" "../data/$GRAPH/2" "../data/$GRAPH/3" "../data/$GRAPH/4" "../data/$GRAPH/5")
-OUTPUT_FILES=("$LOG_DIR/0.txt" "$LOG_DIR/1.txt" "$LOG_DIR/2.txt" "$LOG_DIR/3.txt" "$LOG_DIR/4.txt" "$LOG_DIR/5.txt")
+case "$APP" in
+  bfs)
+    SUBDIR=unweighted; LOCAL_FLAGS=(--out-csr -bfs_root "$BFS_ROOT"); AWS_OUT=true; AWS_IN=false; NEED_DEG=false; EXTRA_JSON=", \"bfs_root\": $BFS_ROOT" ;;
+  pr)
+    SUBDIR=unweighted; LOCAL_FLAGS=(--in-csr --need-global-degree -pr_iterations "$PR_ITERATIONS"); AWS_OUT=false; AWS_IN=true; NEED_DEG=true; EXTRA_JSON=", \"pr_iterations\": $PR_ITERATIONS" ;;
+  sssp)
+    SUBDIR=weighted; LOCAL_FLAGS=(--out-csr -sssp_root "$SSSP_ROOT"); AWS_OUT=true; AWS_IN=false; NEED_DEG=false; EXTRA_JSON=", \"sssp_root\": $SSSP_ROOT" ;;
+  cc)
+    SUBDIR=undirected; LOCAL_FLAGS=(--out-csr); AWS_OUT=true; AWS_IN=false; NEED_DEG=false; EXTRA_JSON="" ;;
+  *) echo "Unsupported app: $APP"; exit 1 ;;
+esac
 
-# AWS function names and result files
-AWS_FUNCTIONS=("${APP}_0" "${APP}_1" "${APP}_2" "${APP}_3" "${APP}_4" "${APP}_5")
-AWS_RESULTS=("result0.txt" "result1.txt" "result2.txt" "result3.txt" "result4.txt" "result5.txt")
+mkdir -p "$LOG_DIR" "$RESULT_DIR"
+[[ -n "$FUNCTION_PREFIX" ]] || FUNCTION_PREFIX="${GRAPH}_${APP}"
+
+cpu_bind() {
+  local start=$(( $1 * CORES ))
+  local end=$(( start + CORES - 1 ))
+  seq -s, "$start" "$end"
+}
 
 if [[ "$MODE" == "local" ]]; then
-  # Set the execution command and additional flags for 'local' mode
-  if [[ "$APP" == "bfs" ]]; then
-    EXEC_CMD="./local_bfs -request_id $REQUEST_ID -bfs_root $BFS_ROOT -cores $CORES --meta-server $META_SERVER_IP --v $V_FLAG"
-    ADDITIONAL_FLAG=$SPARSE_ONLY
-  elif [[ "$APP" == "pr" ]]; then
-    EXEC_CMD="./local_pr -request_id $REQUEST_ID -pr_iterations $PR_ITERATIONS -cores $CORES --meta-server $META_SERVER_IP --v $V_FLAG"
-    ADDITIONAL_FLAG=$DENSE_ONLY
-  else
-    echo "Invalid app. Please choose either 'bfs' or 'pr'."
-    exit 1
-  fi
-
-  # Run the commands in the background
-  for i in "${!CPU_BINDINGS[@]}"; do
-    CMD="sudo numactl --physcpubind=${CPU_BINDINGS[$i]} $EXEC_CMD -graph_dir ${GRAPH_DIRS[$i]} $ADDITIONAL_FLAG > ${OUTPUT_FILES[$i]} 2>&1 &"
-    echo "Running: $CMD"
-    eval "$CMD"
+  for ((i=0; i<PARTITIONS; i++)); do
+    cmd=(sudo numactl --physcpubind="$(cpu_bind "$i")" "$BUILD_DIR/local_$APP"
+      -request_id "$REQUEST_ID" -partition_id "$i"
+      -graph_dir "$ROOT_DIR/data/$GRAPH/$SUBDIR/$i" -result_dir "$RESULT_DIR"
+      -cores "$CORES" --proxy_ip "$PROXY_IP" --save-mode "$SAVE_MODE" --v "$V"
+      "${LOCAL_FLAGS[@]}")
+    echo "Running: nohup ${cmd[*]} > $LOG_DIR/${APP}_${i}.txt 2>&1 &"
+    nohup "${cmd[@]}" > "$LOG_DIR/${APP}_${i}.txt" 2>&1 &
   done
-  echo "All local tasks are running in the background."
-
+  echo "Local workers launched. Start $BUILD_DIR/proxy_server separately if needed."
 elif [[ "$MODE" == "aws" ]]; then
-  # Set AWS Lambda payload flags
-  if [[ "$APP" == "bfs" ]]; then
-    SPARSE_ONLY=true
-    DENSE_ONLY=false
-  elif [[ "$APP" == "pr" ]]; then
-    SPARSE_ONLY=false
-    DENSE_ONLY=true
-  else
-    echo "Invalid app. Please choose either 'bfs' or 'pr'."
-    exit 1
-  fi
-
-  # Execute AWS Lambda functions
-  for i in "${!AWS_FUNCTIONS[@]}"; do
-    PAYLOAD=$(cat <<EOF
-{
-  "graph_dir": "graph",
-  "result_dir": "/tmp",
-  "meta_server": "172.31.12.143",
-  "cores": 2,
-  "no_pipeline": false,
-  "sparse_only": true,
-  "dense_only": false,
-  "save_mode": 0,
-  "s3_bucket": "ziliuziliu",
-  "request_id": $REQUEST_ID,
-  "bfs_root": 0
-}
-EOF
-)
-    CMD="aws lambda invoke --function-name ${AWS_FUNCTIONS[$i]} --payload '$PAYLOAD' ${AWS_RESULTS[$i]} &"
-    echo "Running: $CMD"
-    eval "$CMD"
+  for ((i=0; i<PARTITIONS; i++)); do
+    fn="${FUNCTION_PREFIX}_${i}"
+    proxy_json=", \"elastic_proxy\": $ELASTIC_PROXY"
+    if [[ "$ELASTIC_PROXY" == "true" ]]; then
+      proxy_json+=" , \"elasticache_host\": \"$ELASTICACHE_HOST\""
+    else
+      proxy_json+=" , \"proxy_ip\": \"$PROXY_IP\""
+    fi
+    payload="{\"function_name\":\"$fn\",\"graph_dir\":\"graph\",\"result_dir\":\"/tmp\",\"cores\":$CORES,\"no_pipeline\":false,\"out_csr\":$AWS_OUT,\"in_csr\":$AWS_IN,\"need_global_degree\":$NEED_DEG,\"save_mode\":0,\"s3_bucket\":\"$S3_BUCKET\",\"request_id\":$REQUEST_ID,\"dynamic_invoke\":$DYNAMIC_INVOKE,\"partition_id\":$i,\"kill_wait_ms\":$KILL_WAIT_MS$proxy_json$EXTRA_JSON}"
+    echo "Running: nohup aws lambda invoke --function-name $fn ... $LOG_DIR/${fn}.json &"
+    nohup aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out --payload "$payload" "$LOG_DIR/${fn}.json" > "$LOG_DIR/${fn}_error.log" 2>&1 &
   done
-  echo "All AWS Lambda tasks are running in the background."
+  echo "AWS Lambda invocations launched in the background."
 else
-  echo "Invalid mode. Please choose either 'local' or 'aws'."
-  exit 1
+  echo "Invalid mode: $MODE"
+  usage
 fi

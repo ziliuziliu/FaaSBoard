@@ -406,9 +406,9 @@ void work(int thread_id, int epoll_fd) {
                 delete [] raw_data.first;
                 break;
             case CAAS_OP::ALLREDUCE:
-                VLOG(1) << "all reduce from request " << request_id 
-                    << " object " << object_id
-                    << " fd " << client_fd;
+                // VLOG(1) << "all reduce from request " << request_id 
+                //     << " object " << object_id
+                //     << " fd " << client_fd;
                 segment -> m.lock();
                 if (!segment -> initialized) {
                     segment -> initialize((uint32_t *)raw_data.first);

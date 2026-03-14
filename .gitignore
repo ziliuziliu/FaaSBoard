@@ -1,6 +1,6 @@
 build/
 original/
 data/
+experiment/
 .vscode/
 third-party/
-script/aws-config.json

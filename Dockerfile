@@ -58,6 +58,19 @@ RUN git clone https://github.com/awslabs/aws-lambda-cpp.git /tmp/aws-lambda-cpp 
     cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=~/lambda-install && \
     make && make install
 
+# 9. Install GKlib and Metis
+RUN git clone https://github.com/KarypisLab/GKlib.git /tmp/GKlib && \
+    cd /tmp/GKlib && \
+    make config && \
+    make && \
+    make install && \
+    git clone https://github.com/KarypisLab/METIS.git /tmp/METIS && \
+    cd /tmp/METIS && \
+    make config i64=1 r64=1 cc=gcc prefix=~/local && \
+    make && \
+    make install && \
+    rm -rf /tmp/GKlib /tmp/METIS
+
 # 9. Create the working directory
 WORKDIR /app
 

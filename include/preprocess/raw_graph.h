@@ -19,6 +19,8 @@
 #include <cassert>
 #include <omp.h>
 #include <errno.h>
+#include <metis.h>
+#include <limits>
 
 template <class ewT>
 class raw_graph {
@@ -48,9 +50,9 @@ public:
         }
     }
 
-    void read_txt(std::string path, bool undirected) {
+    void read_txt(std::string path, bool undirected, bool txt_with_weight) {
         read_txt_util<ewT>(
-            path, undirected,
+            path, undirected, txt_with_weight,
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree, 
             weighted, meta.total_v, meta.total_e
@@ -191,6 +193,561 @@ public:
         t.from_tick();
         return final_result;
     }
+
+    // reorder by HASH partition and rebuild CSR.
+    void reorder_vertices_by_hash(int total_block) {
+        if (total_block <= 0) {
+            LOG(FATAL) << "reorder_vertices_by_hash: total_block must be > 0, got " << total_block;
+        }
+        if (meta.total_v == 0) return;
+
+        // hash_bucket: partition(i) = i % total_block
+        std::vector<uint32_t> cnt(total_block, 0); // num_vertices of every partition
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            cnt[i % total_block]++;
+        }
+
+        // prefix[i] is the start_pos of re-ordered partition i, prefix[total_block] is equal to meta.total_v
+        std::vector<uint32_t> prefix(total_block + 1, 0);
+        for (int b = 0; b < total_block; b++) {
+            prefix[b + 1] = prefix[b] + cnt[b];
+        }
+
+        std::vector<uint32_t> write_pos = prefix; // write_pointer for every bucket
+        std::vector<uint32_t> new2old(meta.total_v, 0);
+        std::vector<uint32_t> old2new(meta.total_v, 0);
+
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            uint32_t bucket = i % total_block;
+            uint32_t new_pos = write_pos[bucket]++;
+            new2old[new_pos] = i;
+            old2new[i] = new_pos;
+        }
+
+        // Build OUT CSR for re-ordered graph
+        uint64_t* new_out_offset = new uint64_t[meta.total_v + 1]();
+        uint32_t* new_out_degree = new uint32_t[meta.total_v]();
+        uint32_t* new_out_dest = new uint32_t[meta.total_e]();
+        ewT* new_out_weight = nullptr;
+        if (weighted) new_out_weight = new ewT[meta.total_e]();
+
+        new_out_offset[0] = 0;
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            uint32_t old_i = new2old[i];
+            uint64_t deg = out_offset[old_i + 1] - out_offset[old_i];
+            new_out_degree[i] = static_cast<uint32_t>(deg);
+            new_out_offset[i + 1] = new_out_offset[i] + deg;
+        }
+
+        if (new_out_offset[meta.total_v] != meta.total_e) {
+            LOG(FATAL) << "reorder_vertices_by_hash: new_out_offset[meta.total_v] != metal.total_e, got "
+                    << new_out_offset[meta.total_v] << ", expected " << meta.total_e;
+        }
+
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            uint32_t old_i = new2old[i];
+            uint64_t old_begin = out_offset[old_i];
+            uint64_t old_end = out_offset[old_i + 1];
+            uint64_t new_begin = new_out_offset[i];
+
+            uint64_t k = 0;
+            for (uint64_t e = old_begin; e < old_end; e++, k++) {
+                uint32_t old_j = out_dest[e];
+                uint32_t new_j = old2new[old_j];
+                new_out_dest[new_begin + k] = new_j;
+                if (weighted) {
+                    new_out_weight[new_begin + k] = out_weight[e];
+                }
+            }
+        }
+
+        // Build IN CSR for re-ordered graph
+        uint64_t* new_in_offset = new uint64_t[meta.total_v + 1]();
+        uint32_t* new_in_degree = new uint32_t[meta.total_v]();
+        uint32_t* new_in_source = new uint32_t[meta.total_e]();
+        ewT* new_in_weight = nullptr;
+        if (weighted) new_in_weight = new ewT[meta.total_e]();
+
+        new_in_offset[0] = 0;
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            uint32_t old_i = new2old[i];
+            uint64_t deg = in_offset[old_i + 1] - in_offset[old_i];
+            new_in_degree[i] = static_cast<uint32_t>(deg);
+            new_in_offset[i + 1] = new_in_offset[i] + deg;
+        }
+
+        if (new_in_offset[meta.total_v] != meta.total_e) {
+            LOG(FATAL) << "reorder_vertices_by_hash: new_in_offset[meta.total_v] != meta.total_e, got "
+                    << new_in_offset[meta.total_v] << ", expected " << meta.total_e;
+        }
+
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            uint32_t old_i = new2old[i];
+            uint64_t old_begin = in_offset[old_i];
+            uint64_t old_end = in_offset[old_i + 1];
+            uint64_t new_begin = new_in_offset[i];
+
+            uint64_t k = 0;
+            for (uint64_t e = old_begin; e < old_end; e++, k++) {
+                uint32_t old_j = in_source[e];
+                uint32_t new_j = old2new[old_j];
+                new_in_source[new_begin + k] = new_j;
+                if (weighted) {
+                    new_in_weight[new_begin + k] = in_weight[e];
+                }
+            }
+        }
+
+        // refresh and GC
+        delete[] out_offset;
+        delete[] out_degree;
+        delete[] out_dest;
+        out_offset = new_out_offset;
+        out_degree = new_out_degree;
+        out_dest   = new_out_dest;
+        if (weighted) {
+            delete[] out_weight;
+            out_weight = new_out_weight;
+        }
+
+        delete[] in_offset;
+        delete[] in_degree;
+        delete[] in_source;
+        in_offset = new_in_offset;
+        in_degree = new_in_degree;
+        in_source = new_in_source;
+        if (weighted) {
+            delete[] in_weight;
+            in_weight = new_in_weight;
+        }
+    }
+
+    partition_result hash_partition(int total_block) {
+        timer t;
+        t.tick("partition time");
+
+        // do reordering first
+        reorder_vertices_by_hash(total_block);
+
+        // chunking (row-wise, similar to row_partition)
+        partition_result result;
+
+        std::vector<uint32_t> cnt(total_block, 0);
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            cnt[i % total_block]++;
+        }
+
+        uint32_t target_vertices =
+            (meta.total_v + total_block - 1) / total_block;
+
+        uint32_t previous_from_source = 0;
+        uint64_t current_edges = 0;
+        int formed_blocks = 0;
+
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            current_edges += out_offset[i + 1] - out_offset[i];
+
+            bool can_cut =
+                (formed_blocks < total_block - 1) && // last_partition
+                (i % 64 == 0) &&
+                ((i - previous_from_source) >= target_vertices);
+
+            if (can_cut) {
+                result.add(previous_from_source, i, 0, meta.total_v, static_cast<uint32_t>(current_edges));
+                previous_from_source = i;
+                current_edges = 0;
+                formed_blocks++;
+            }
+        }
+
+        result.add(previous_from_source, meta.total_v, 0, meta.total_v, static_cast<uint32_t>(current_edges));
+
+        t.from_tick();
+        return result;
+    }
+
+    // reorder by METIS partition and rebuild CSR.
+    void reorder_vertices_by_metis_parts(const std::vector<uint32_t>& part, int total_block, std::vector<uint32_t>& metis_prefix) {
+
+        timer t;
+        t.tick("reorder_by_metis");
+
+        // count vertices per partition
+        std::vector<uint32_t> cnt(total_block, 0);
+        for (uint32_t u = 0; u < meta.total_v; u++) {
+            uint32_t p = part[u];
+            if (p >= (uint32_t)total_block) {
+                LOG(FATAL) << "invalid METIS part id: " << p;
+            }
+            cnt[p]++;
+        }
+
+        // compute aligned prefix
+        std::vector<uint32_t> prefix(total_block + 1, 0);
+        for (int p = 0; p < total_block; p++) {
+            uint32_t start = prefix[p];
+            uint32_t aligned_start =
+                (start + 64 - 1) / 64 * 64;
+            prefix[p] = aligned_start;
+            prefix[p + 1] = aligned_start + cnt[p];
+        }
+
+        uint32_t new_total_v = prefix[total_block];
+        metis_prefix = prefix;  
+
+        // build mapping
+        std::vector<uint32_t> write_pos(prefix.begin(), prefix.end());
+        std::vector<uint32_t> new2old(new_total_v, UINT32_MAX);
+        std::vector<uint32_t> old2new(meta.total_v, 0);
+
+        for (uint32_t u = 0; u < meta.total_v; u++) {
+            uint32_t p = part[u];
+            uint32_t new_pos = write_pos[p]++;
+            new2old[new_pos] = u;
+            old2new[u] = new_pos;
+        }
+
+        // rebuild OUT CSR
+        uint64_t* new_out_offset = new uint64_t[new_total_v + 1]();
+        uint32_t* new_out_degree = new uint32_t[new_total_v]();
+        uint32_t* new_out_dest   = new uint32_t[meta.total_e]();
+
+        new_out_offset[0] = 0;
+        for (uint32_t i = 0; i < new_total_v; i++) {
+            if (new2old[i] == UINT32_MAX) {
+                new_out_degree[i] = 0;
+                new_out_offset[i + 1] = new_out_offset[i];
+            } else {
+                uint32_t old_i = new2old[i];
+                uint64_t deg = out_offset[old_i + 1] - out_offset[old_i];
+                new_out_degree[i] = (uint32_t)deg;
+                new_out_offset[i + 1] = new_out_offset[i] + deg;
+            }
+        }
+
+        if (new_out_offset[new_total_v] != meta.total_e) {
+            LOG(FATAL) << "reorder_by_metis: edge count mismatch";
+        }
+
+        for (uint32_t i = 0; i < new_total_v; i++) {
+            if (new2old[i] == UINT32_MAX) continue;
+            uint32_t old_i = new2old[i];
+            uint64_t old_b = out_offset[old_i];
+            uint64_t old_e = out_offset[old_i + 1];
+            uint64_t new_b = new_out_offset[i];
+
+            uint64_t k = 0;
+            for (uint64_t e = old_b; e < old_e; e++, k++) {
+                uint32_t old_j = out_dest[e];
+                new_out_dest[new_b + k] = old2new[old_j];
+            }
+        }
+
+        // Rebuild IN CSR
+        uint64_t* new_in_offset = new uint64_t[new_total_v + 1]();
+        uint32_t* new_in_degree = new uint32_t[new_total_v]();
+        uint32_t* new_in_source = new uint32_t[meta.total_e]();
+
+        new_in_offset[0] = 0;
+        for (uint32_t i = 0; i < new_total_v; i++) {
+            if (new2old[i] == UINT32_MAX) {
+                new_in_degree[i] = 0;
+                new_in_offset[i + 1] = new_in_offset[i];
+            } else {
+                uint32_t old_i = new2old[i];
+                uint64_t deg = in_offset[old_i + 1] - in_offset[old_i];
+                new_in_degree[i] = (uint32_t)deg;
+                new_in_offset[i + 1] = new_in_offset[i] + deg;
+            }
+        }
+
+        if (new_in_offset[new_total_v] != meta.total_e) {
+            LOG(FATAL) << "reorder_by_metis: in-edge count mismatch";
+        }
+
+        for (uint32_t i = 0; i < new_total_v; i++) {
+            if (new2old[i] == UINT32_MAX) continue;
+            uint32_t old_i = new2old[i];
+            uint64_t old_b = in_offset[old_i];
+            uint64_t old_e = in_offset[old_i + 1];
+            uint64_t new_b = new_in_offset[i];
+
+            uint64_t k = 0;
+            for (uint64_t e = old_b; e < old_e; e++, k++) {
+                uint32_t old_j = in_source[e];
+                new_in_source[new_b + k] = old2new[old_j];
+            }
+        }
+
+        // replace graph
+        delete[] out_offset;
+        delete[] out_degree;
+        delete[] out_dest;
+        out_offset = new_out_offset;
+        out_degree = new_out_degree;
+        out_dest   = new_out_dest;
+
+        delete[] in_offset;
+        delete[] in_degree;
+        delete[] in_source;
+        in_offset = new_in_offset;
+        in_degree = new_in_degree;
+        in_source = new_in_source;
+
+        meta.total_v = new_total_v;
+
+        t.from_tick();
+    }
+
+    partition_result metis_partition(int total_block) {
+        timer t_total;
+        t_total.tick("metis_partition_total");
+
+        partition_result result;
+
+        // partitions == 1 -> no need for METIS
+        if (total_block == 1) {
+            uint32_t e32 = (meta.total_e > UINT32_MAX) ? UINT32_MAX : static_cast<uint32_t>(meta.total_e);
+            result.add(0, meta.total_v, 0, meta.total_v, e32);
+            VLOG(1) << "metis_partition: total_block==1, skip METIS.";
+            t_total.from_tick();
+            return result;
+        }
+
+        // Basic runtime sanity
+        VLOG(1) << "METIS IDXTYPEWIDTH=" << IDXTYPEWIDTH << ", sizeof(idx_t)=" << sizeof(idx_t);
+
+        const idx_t n = static_cast<idx_t>(meta.total_v);
+        idx_t nparts  = static_cast<idx_t>(total_block);
+
+        // Build undirected, unweighted CSR for METIS
+        timer t_build;
+        t_build.tick("metis_build_csr");
+
+        struct Nbr { uint32_t v; };
+
+        // accumulate xadj in uint64_t then convert to idx_t
+        std::vector<uint64_t> xadj64(static_cast<size_t>(meta.total_v) + 1, 0);
+
+        {
+            std::vector<Nbr> buf;
+
+            for (uint32_t u = 0; u < meta.total_v; u++) {
+                buf.clear();
+
+                // reserve may throw for extremely high-degree vertices; safe-guard it.
+                uint64_t want = (uint64_t)out_degree[u] + (uint64_t)in_degree[u];
+                if (want > 0) {
+                    // cap reserve to avoid pathological huge reserve requests
+                    uint64_t cap = std::min<uint64_t>(want, 50ull * 1000ull * 1000ull); // 50M
+                    buf.reserve((size_t)cap);
+                }
+
+                // out-neighbors
+                for (uint64_t e = out_offset[u]; e < out_offset[u + 1]; e++) {
+                    uint32_t v = out_dest[e];
+                    if (v != u) buf.push_back({v});
+                }
+                // in-neighbors
+                for (uint64_t e = in_offset[u]; e < in_offset[u + 1]; e++) {
+                    uint32_t v = in_source[e];
+                    if (v != u) buf.push_back({v});
+                }
+
+                if (buf.empty()) {
+                    xadj64[u + 1] = xadj64[u];
+                    continue;
+                }// Output new_prefix (size = total_block+1), and guarantee boundary %64==0 for p < last
+
+                std::sort(buf.begin(), buf.end(),
+                        [](const Nbr& a, const Nbr& b) { return a.v < b.v; });
+
+                uint64_t uniq = 0;
+                for (size_t i = 0; i < buf.size();) {
+                    size_t j = i + 1;
+                    while (j < buf.size() && buf[j].v == buf[i].v) j++;
+                    uniq++;
+                    i = j;
+                }
+
+                xadj64[u + 1] = xadj64[u] + uniq;
+            }
+        }
+
+        const uint64_t adj_size64 = xadj64[meta.total_v];
+        VLOG(1) << "METIS CSR: n=" << meta.total_v << ", adj_size64=" << adj_size64;
+
+        // idx_t range check (system compatibility)
+        const uint64_t idx_max_u64 =
+            (sizeof(idx_t) == 8)
+                ? static_cast<uint64_t>(std::numeric_limits<int64_t>::max())
+                : static_cast<uint64_t>(std::numeric_limits<int32_t>::max());
+
+        if (adj_size64 > idx_max_u64) {
+            LOG(FATAL)
+                << "metis_partition: adj_size (" << adj_size64 << ") exceeds idx_t max ("
+                << idx_max_u64 << ").\n"
+                << "Your system METIS is IDXTYPEWIDTH=" << IDXTYPEWIDTH
+                << " (likely 32-bit). For this graph, you MUST use 64-bit METIS "
+                << "(build METIS with IDX64/IDXTYPEWIDTH=64 and link against it).";
+        }
+
+        if (adj_size64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+            LOG(FATAL) << "metis_partition: adj_size too large for size_t on this platform.";
+        }
+
+        // Convert xadj64 -> xadj (idx_t)
+        std::vector<idx_t> xadj(static_cast<size_t>(meta.total_v) + 1, 0);
+
+        for (uint32_t i = 0; i <= meta.total_v; i++) {
+            xadj[i] = static_cast<idx_t>(xadj64[i]);
+        }
+
+        const idx_t adj_size = static_cast<idx_t>(adj_size64);
+
+        // Allocate adjncy
+        std::vector<idx_t> adjncy;
+        try {
+            adjncy.resize(static_cast<size_t>(adj_size));
+        } catch (const std::exception& e) {
+            LOG(FATAL)
+                << "metis_partition: failed to allocate adjncy of size " << (uint64_t)adj_size
+                << " (" << (uint64_t)adj_size * sizeof(idx_t) << " bytes). Exception: " << e.what()
+                << "\nLikely insufficient RAM. Consider: (1) 64-bit METIS, (2) more memory, "
+                << "(3) build METIS graph with fewer neighbors (e.g., only out-neighbors), "
+                << "(4) use a scalable partitioner (ParMETIS/KaHIP).";
+        }
+
+        // Fill adjncy
+        {
+            std::vector<Nbr> buf;
+            idx_t pos = 0;
+
+            for (uint32_t u = 0; u < meta.total_v; u++) {
+                buf.clear();
+
+                uint64_t want = (uint64_t)out_degree[u] + (uint64_t)in_degree[u];
+                if (want > 0) {
+                    uint64_t cap = std::min<uint64_t>(want, 50ull * 1000ull * 1000ull);
+                    buf.reserve((size_t)cap);
+                }
+
+                for (uint64_t e = out_offset[u]; e < out_offset[u + 1]; e++) {
+                    uint32_t v = out_dest[e];
+                    if (v != u) buf.push_back({v});
+                }
+                for (uint64_t e = in_offset[u]; e < in_offset[u + 1]; e++) {
+                    uint32_t v = in_source[e];
+                    if (v != u) buf.push_back({v});
+                }
+
+                if (!buf.empty()) {
+                    std::sort(buf.begin(), buf.end(),
+                            [](const Nbr& a, const Nbr& b) { return a.v < b.v; });
+
+                    for (size_t i = 0; i < buf.size();) {
+                        uint32_t v = buf[i].v;
+                        size_t j = i + 1;
+                        while (j < buf.size() && buf[j].v == v) j++;
+
+                        if (static_cast<uint64_t>(pos) >= adj_size64) {
+                            LOG(FATAL) << "metis_partition: pos overflow while filling adjncy. "
+                                    << "pos=" << (int64_t)pos << ", adj_size=" << (uint64_t)adj_size64;
+                        }
+                        adjncy[static_cast<size_t>(pos++)] = static_cast<idx_t>(v);
+                        i = j;
+                    }
+                }
+            }
+
+            if (static_cast<uint64_t>(pos) != adj_size64) {
+                LOG(FATAL) << "metis_partition: CSR mismatch, pos=" << (int64_t)pos
+                        << ", adj_size=" << (uint64_t)adj_size64;
+            }
+        }
+
+        t_build.from_tick();
+
+        // Run METIS
+        timer t_metis;
+        t_metis.tick("metis_compute");
+
+        idx_t nvtxs = n;
+        idx_t ncon  = 1;
+        idx_t objval = 0;
+
+        std::vector<idx_t> part(static_cast<size_t>(n), 0);
+
+        idx_t options[METIS_NOPTIONS];
+        METIS_SetDefaultOptions(options);
+        options[METIS_OPTION_NUMBERING] = 0;
+        options[METIS_OPTION_SEED] = 42;
+
+        int status = METIS_PartGraphKway(
+            &nvtxs,
+            &ncon,
+            xadj.data(),
+            adjncy.data(),
+            nullptr,   // vwgt
+            nullptr,   // vsize
+            nullptr,   // adjwgt
+            &nparts,
+            nullptr,
+            nullptr,
+            options,
+            &objval,
+            part.data()
+        );
+
+        if (status != METIS_OK) {
+            LOG(FATAL) << "METIS_PartGraphKway failed, status=" << status;
+        }
+
+        t_metis.from_tick();
+
+        // Reorder vertices by METIS parts (chunk-aligned)
+        timer t_reorder;
+        t_reorder.tick("metis_reorder");
+
+        std::vector<uint32_t> part_u32(meta.total_v);
+
+        for (uint32_t i = 0; i < meta.total_v; i++) {
+            part_u32[i] = static_cast<uint32_t>(part[static_cast<size_t>(i)]);
+        }
+
+        std::vector<uint32_t> metis_prefix;
+        reorder_vertices_by_metis_parts(part_u32, total_block, metis_prefix);
+
+        t_reorder.from_tick();
+
+        // Build 1D partition outgoing-edge statistics AFTER reordering (O(V))
+        std::vector<uint64_t> part_out_edges(static_cast<size_t>(total_block), 0);
+
+        for (int p = 0; p < total_block; p++) {
+            uint32_t begin = metis_prefix[p];
+            uint32_t end   = metis_prefix[p + 1];
+
+            if (begin >= meta.total_v) continue;
+            if (end > meta.total_v) end = meta.total_v;
+
+            uint64_t sum = 0;
+            for (uint32_t u = begin; u < end; u++) {
+                sum += (out_offset[u + 1] - out_offset[u]);
+            }
+            part_out_edges[static_cast<size_t>(p)] = sum;
+        }
+
+        // Build partition_result (1D)
+        for (int p = 0; p < total_block; p++) {
+            uint64_t e64 = part_out_edges[static_cast<size_t>(p)];
+            uint32_t e32 = (e64 > UINT32_MAX) ? UINT32_MAX : static_cast<uint32_t>(e64);
+            result.add(metis_prefix[p], metis_prefix[p + 1], 0, meta.total_v, e32);
+        }
+
+        t_total.from_tick();
+        return result;
+    }
+
 
     partition_result generate_checkerboard_partition_from_cuts(int cut, std::vector<uint32_t> cuts) {
         for (int i = 0; i < (int)cuts.size() - 1; i++) {

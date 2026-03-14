@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
         request.SetFunctionName("pr_d_5");
         request.SetLogType(Aws::Lambda::Model::LogType::None);
         auto payload = Aws::MakeShared<Aws::StringStream>("InputStream", std::stringstream::in | std::stringstream::out | std::stringstream::binary);
-        std::string jsonPayload = "{\"cores\": 2, \"dense_only\": true, \"dynamic_invoke\": true, \"function_name\": \"pr_d\", \"graph_dir\": \"graph\", \"meta_server\": \"172.31.0.207\", \"no_pipeline\": false, \"partition_id\": 5, \"pr_iterations\": 17, \"request_id\": 123, \"result_dir\": \"/tmp\", \"s3_bucket\": \"ziliuziliu\", \"save_mode\": 0, \"sparse_only\": false}";
+        std::string jsonPayload = "{\"cores\": 2, \"in_csr\": true, \"dynamic_invoke\": true, \"function_name\": \"pr_d\", \"graph_dir\": \"graph\", \"meta_server\": \"172.31.0.207\", \"no_pipeline\": false, \"partition_id\": 5, \"pr_iterations\": 17, \"request_id\": 123, \"result_dir\": \"/tmp\", \"s3_bucket\": \"ziliuziliu\", \"save_mode\": 0, \"out_csr\": false}";
         payload -> write(jsonPayload.c_str(), jsonPayload.length());
         request.SetBody(payload);
         request.SetContentType("application/json");

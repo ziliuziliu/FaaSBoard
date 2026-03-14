@@ -9,6 +9,7 @@
 #include "util/types.h"
 #include "util/atomic.h"
 #include "util/log.h"
+#include <vector>
 
 graph_set<uint32_t, empty> *graphs = nullptr;
 
@@ -16,6 +17,7 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
     timer t;
     timer t2;
     double overall_idle_time = 0;
+    std::vector<double> idle_time;
     t.start();
     t.tick("read graph");
     if (graphs == nullptr) {
@@ -93,7 +95,9 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
             if (round == 1) {
                 t.from_tick();
             } else {
-                overall_idle_time += t2.from_tick();
+                double this_idle_time = t2.from_tick();
+                overall_idle_time += this_idle_time;
+                idle_time.push_back(this_idle_time);
             }
             if (activated == 0) {
                 break;
@@ -132,6 +136,17 @@ void bfs(uint32_t request_id, uint32_t partition_id, uint32_t root, exec_config 
     VLOG(1) << "total_msg_size: " << (double)graphs -> total_msg_size.load() / 1024 / 1024 << " MB";
     VLOG(1) << "overall_time: " << (double)overall_time << " s";
     VLOG(1) << "overall_idle_time: " << (double)overall_idle_time << " s";
+    std::string list_idle_time = "[";
+    bool first = true;
+    for(double this_idle_time : idle_time) {
+        if (!first) {
+            list_idle_time += ", ";
+        }
+        list_idle_time += std::to_string(this_idle_time);
+        first = false;
+    }
+    list_idle_time += ']';
+    VLOG(1) << "list_idle_time: " << list_idle_time;
     if (!kill) {
         t.tick("save_result");
         graphs -> save_result(config -> save_mode, config -> graph_dir);

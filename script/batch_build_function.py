@@ -1,5 +1,5 @@
 ## RUN WITH SUDO!!!
-## like sudo python3 batch_build_function.py -graph_name twitter -graph_root_dir data/twitter
+## like sudo python3 batch_build_function.py -graph_name twitter -graph_root_dir data/twitter -application pr
 ## 
 import os
 import argparse
@@ -8,6 +8,8 @@ import time
 import subprocess
 
 TEMP_DIR = '../build/temp'
+
+os.environ["AWS_PAGER"] = ""
 
 def build_function(args, index, dockerfile, aws_config, application_name, function_name, detailed_dir):
     print('====== Build For {} {} ======'.format(function_name, index))
@@ -25,7 +27,7 @@ def build_function(args, index, dockerfile, aws_config, application_name, functi
         print(f"Deleted image: {image_uri}")
     else:
         print("Image doesn't exist")
-    os.system('docker build --build-arg FUNCTION_PATH=build/temp --build-arg GRAPH_DIR={}/{}/{} -f ../{} -t {}:{} ..'.format(
+    os.system('docker build --provenance=false --build-arg FUNCTION_PATH=build/temp --build-arg GRAPH_DIR={}/{}/{} -f ../{} -t {}:{} ..'.format(
         args.graph_root_dir, 
         detailed_dir,
         index, 
@@ -62,13 +64,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-graph_name', type=str, required=True, help='livejournal, twitter, friendster, rmat27')
     parser.add_argument('-graph_root_dir', type=str, required=True, help='root directory for graph dataset in csr binary')
-    # parser.add_argument('-application', type=str, required=True, help='application type (bfs, cc, pr, sssp)')
-    # parser.add_argument('-function_name', type=str, required=True, help='function name')
+    parser.add_argument('-application', type=str, default='', help='application type (bfs, cc, pr, sssp)')
     args = parser.parse_args()
     dockerfile = None
-    # os.system('aws ecr create-repository --repository-name lambda-{}'.format(function_name))
+    valid_applications = ['bfs', 'sssp', 'pr', 'cc']
+    if args.application and args.application not in valid_applications:
+        parser.error('application must be one of bfs, cc, pr, sssp')
+
+    func_names = [args.application] if args.application else valid_applications
     os.system('aws ecr get-login-password --region {} | docker login --username AWS --password-stdin {}.dkr.ecr.{}.amazonaws.com'.format(aws_config['region'], aws_config['account_id'], aws_config['region']))
-    for func_name in ['cc']:
+    for func_name in func_names:
         os.system('aws ecr create-repository --repository-name lambda-{}-{}'.format(args.graph_name ,func_name))
         index = 0
         print(index)

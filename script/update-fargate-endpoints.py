@@ -29,7 +29,7 @@ def get_task_ips(cluster_name, service_name):
 
 def set_list(key, values):
     redis_client = redis.StrictRedis(
-        host='faasboard-hcdnu5.serverless.apse1.cache.amazonaws.com', 
+        host='faasboard-hcdnu5.serverless.apse1.cache.amazonaws.com',  # you need to update this with your own Elasticache host if using elastic proxy
         port=6379, 
         decode_responses=True,
         ssl=True,
@@ -40,9 +40,9 @@ def set_list(key, values):
         redis_client.rpush(key, value)
 
 def lambda_handler(event, context):
-    private_ips = get_task_ips('faasboard', 'proxy_server')
+    private_ips = get_task_ips('faasboard', 'proxy_server') # faasboard is the cluster name of AWS Fargate, proxy_server is the service name of Fargate
     print('fargate ips: {}'.format(private_ips))
-    set_list('GlobalIPList', private_ips)
+    set_list('GlobalIPList', private_ips) # GlobalIPList is the key in Redis to store the list of Fargate IPs
     print('push to elasticache success')
     return {
         'statusCode': 200,

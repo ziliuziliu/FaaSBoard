@@ -87,7 +87,6 @@ public:
         int row_rank = rank.first, col_rank = rank.second;
         VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
         std::vector<graph_set<ewT> *> cycle_graphsets(total_block, nullptr);
-
         for (int rg = 0; rg < total_block; rg++) {
             for (int cg = 0; cg < total_block; cg++) {
                 int target = (rg % row_rank) * col_rank + (cg % col_rank);
@@ -109,7 +108,6 @@ public:
         std::pair<int,int> rank;
         rank = factorizeInt(total_block);
         int row_rank = rank.first, col_rank = rank.second;
-        VLOG(1) << "row_rank = " << row_rank << "; col_rank = " << col_rank;
         std::vector<graph_set<ewT> *> stagger_graphsets(total_block, nullptr);
 
         for (int rg = 0; rg < total_block; rg++) {
@@ -179,14 +177,13 @@ public:
         return new_graphsets;
     }
 
-    static std::vector<graph_set<ewT> *> pack_graph(std::vector<graph_set<ewT> *> graphsets, partition_result raw_result) {
+    static std::vector<graph_set<ewT> *> pack_graph(std::vector<graph_set<ewT> *> graphsets, partition_result raw_result, bool save_empty = false) {
         int* owner_flag = new int[graphsets.size()]();
         #pragma omp parallel for
         for (int t = 0; t < (int)raw_result.blocks.size(); t++) {
             partition_block raw_block = raw_result.blocks[t];
             for (int i = 0; i < (int)graphsets.size(); i++) {
                 graph_set<ewT>* graphset = graphsets[i];
-                if (!graphset || graphset->graphs.empty()) continue;
                 graph<ewT>* graph = graphset->graphs[0];
                 if (owner_flag[i] == 0 &&
                     graph->from_source >= raw_block.from_source &&
@@ -200,17 +197,21 @@ public:
 
         std::vector<graph_set<ewT> *> new_graphsets;
         std::vector<bool> deleted(graphsets.size(), false);
+
         for (int i = 0; i < (int)graphsets.size(); i++) {
             for (int j = i + 1; j < (int)graphsets.size(); j++) {
-                if (deleted[i] || deleted[j] || owner_flag[i] != owner_flag[j])
+                if (deleted[i] || deleted[j]) continue;
+                if (owner_flag[i] != owner_flag[j]) {
                     continue;
+                }
                 graphsets[i] = new graph_set<ewT>(graphsets[i], graphsets[j]);
                 deleted[j] = true;
             }
         }
         for (int i = 0; i < (int)graphsets.size(); i++) {
-            if (!deleted[i])
+            if (!deleted[i]) {
                 new_graphsets.push_back(graphsets[i]);
+            }
         }
         delete[] owner_flag;
         return new_graphsets;

@@ -76,15 +76,15 @@ public:
         edges(edges), reduce_op(reduce_op), base_vertex_value(base_vertex_value), config(config) {
         weighted = !std::is_same<ewT, void *>::value;
         manage = std::max(from_source, from_dest) > std::min(to_source, to_dest);
-        in_offset = config -> sparse_only ? nullptr : new uint32_t[to_dest - from_dest + 1]();
+        in_offset = config -> out_csr ? nullptr : new uint32_t[to_dest - from_dest + 1]();
         in_degree = config -> need_global_degree ? new uint32_t[to_dest - from_dest]() : nullptr;
-        in_source = config -> sparse_only ? nullptr : new uint32_t[edges]();
-        out_offset = config -> dense_only ? nullptr : new uint32_t[to_source - from_source + 1]();
+        in_source = config -> out_csr ? nullptr : new uint32_t[edges]();
+        out_offset = config -> in_csr ? nullptr : new uint32_t[to_source - from_source + 1]();
         out_degree = config -> need_global_degree ? new uint32_t[to_source - from_source]() : nullptr;
-        out_dest = config -> dense_only ? nullptr : new uint32_t[edges]();
+        out_dest = config -> in_csr ? nullptr : new uint32_t[edges]();
         if (weighted) {
-            in_weight = config -> sparse_only ? nullptr : new ewT[edges]();
-            out_weight = config -> dense_only ? nullptr : new ewT[edges]();
+            in_weight = config -> out_csr ? nullptr : new ewT[edges]();
+            out_weight = config -> in_csr ? nullptr : new ewT[edges]();
         }
         VLOG(1) << "graph " << index << " [ " 
             << from_source << ", " << to_source - 1 << " ] -> [ "
@@ -101,7 +101,7 @@ public:
             in_path, out_path, 
             in_offset, in_source, in_weight, in_degree,
             out_offset, out_dest, out_weight, out_degree,
-            weighted, config -> dense_only, config -> sparse_only, config -> need_global_degree,
+            weighted, config -> in_csr, config -> out_csr, config -> need_global_degree,
             to_source - from_source, to_dest - from_dest, edges
         );
     }
@@ -194,7 +194,7 @@ public:
     void exec_each(int round, int index) {
         uint32_t active_edges = 0;
         in_segment -> print(round);
-        if (!config -> sparse_only && !config -> dense_only) {
+        if (!config -> out_csr && !config -> in_csr) {
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             #pragma omp parallel for reduction(+:active_edges)
@@ -205,7 +205,7 @@ public:
             }
         }
         bool sparse = active_edges < edges / 20;
-        if (config -> sparse_only || (!config -> dense_only && sparse)) {
+        if (config -> out_csr || (!config -> in_csr && sparse)) {
             uint32_t start_source = in_segment -> start_index;
             uint32_t end_source = in_segment -> start_index + in_segment -> vec_len;
             timer t;
@@ -215,7 +215,7 @@ public:
             });
             t.from_tick();
         }
-        if (config -> dense_only || (!config -> sparse_only && !sparse)) {
+        if (config -> in_csr || (!config -> out_csr && !sparse)) {
             uint32_t start_dest = out_segment -> start_index;
             uint32_t end_dest = out_segment -> start_index + out_segment -> vec_len;
             timer t;

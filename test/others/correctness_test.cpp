@@ -181,7 +181,7 @@ template <typename T>
 void process_sssp(CAAS_SAVE_MODE save_mode) {
     T* dis2 = read_result<T>(save_mode, FLAGS_result_dir, FLAGS_vertices);
     raw_graph<T> g(FLAGS_vertices, FLAGS_edges * (FLAGS_undirected ? 2 : 1));
-    g.read_txt(FLAGS_graph_file, FLAGS_undirected);
+    g.read_txt(FLAGS_graph_file, FLAGS_undirected, FLAGS_txt_with_weight);
     T* dis1 = sssp<T>(&g, FLAGS_vertices, FLAGS_sssp_root);
     check_equal<T>(FLAGS_vertices, dis1, dis2);
     delete[] dis1;
@@ -204,13 +204,13 @@ int main(int argc, char *argv[]) {
     if (FLAGS_application == "bfs") {
         uint32_t *dis2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
-        g.read_txt(FLAGS_graph_file, false);
+        g.read_txt(FLAGS_graph_file, false, false);
         uint32_t *dis1 = bfs(&g, FLAGS_vertices, FLAGS_bfs_root);
         check_equal<uint32_t>(FLAGS_vertices, dis1, dis2);
     } else if (FLAGS_application == "pr") {
         float *pr2 = read_result<float>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges);
-        g.read_txt(FLAGS_graph_file, false);
+        g.read_txt(FLAGS_graph_file, false, false);
         float *pr1 = pagerank(&g, FLAGS_vertices, FLAGS_pr_iterations);
         check_error<float>(FLAGS_vertices, pr1, pr2, 0.01);
     } else if (FLAGS_application == "sssp"){
@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
         // only undirected graph
         uint32_t *cc2 = read_result<uint32_t>((CAAS_SAVE_MODE)FLAGS_save_mode, FLAGS_result_dir, FLAGS_vertices);
         raw_graph<empty> g(FLAGS_vertices, FLAGS_edges * 2);
-        g.read_txt(FLAGS_graph_file, true);
+        g.read_txt(FLAGS_graph_file, true, false);
         uint32_t *cc1 = cc(&g, FLAGS_vertices); 
         check_equal<uint32_t>(FLAGS_vertices, cc1, cc2);
     }
